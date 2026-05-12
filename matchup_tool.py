@@ -111,10 +111,10 @@ def get_slate(date_str: str, log_fn: Callable[[str], None] = print) -> List[Dict
         game_pk = g.get("game_id")
         away_team = g.get("away_name")
         home_team = g.get("home_name")
-        away_pitcher_id = g.get("away_probable_pitcher_id")
-        home_pitcher_id = g.get("home_probable_pitcher_id")
-        away_pitcher_name = g.get("away_probable_pitcher")
-        home_pitcher_name = g.get("home_probable_pitcher")
+        away_pitcher_id = g.get("away_probable_pitcher_id") or g.get("away_pitcher_id")
+        home_pitcher_id = g.get("home_probable_pitcher_id") or g.get("home_pitcher_id")
+        away_pitcher_name = g.get("away_probable_pitcher") or g.get("away_pitcher_name")
+        home_pitcher_name = g.get("home_probable_pitcher") or g.get("home_pitcher_name")
 
         away_lineup = _get_lineup(game_pk, side="away", log_fn=log_fn)
         home_lineup = _get_lineup(game_pk, side="home", log_fn=log_fn)
@@ -426,8 +426,6 @@ def analyze_slate(date_str: str, log_fn: Callable[[str], None] = print) -> Dict:
             own_team = g.get(f"{side}_team")
 
             if not pid:
-                _safe_log(log_fn, f"  SKIP {own_team}: no probable pitcher. game keys: {sorted(list(g.keys()))[:14]}")
-                _safe_log(log_fn, f"  SKIP {own_team}: away_pp_id={g.get('away_probable_pitcher_id')!r} home_pp_id={g.get('home_probable_pitcher_id')!r} away_pp={g.get('away_probable_pitcher')!r} home_pp={g.get('home_probable_pitcher')!r}")
                 skipped.append({"game": f"{g['away_team']} @ {g['home_team']}",
                                   "reason": f"no probable pitcher for {own_team}"})
                 continue
