@@ -177,6 +177,44 @@ def _print_banner(port: int) -> None:
     print(bar)
 
 
+
+@app.route("/debug")
+def debug():
+    """Return raw statsapi data so we can see the actual response shape."""
+    import statsapi
+    date_str = request.args.get("date") or _dt.date.today().isoformat()
+    out: Dict[str, Any] = {"date": date_str, "version": "debug-v1"}
+    try:
+        games = statsapi.schedule(date=date_str)
+        out["schedule_count"] = len(games)
+        out["schedule_first"] = games[0] if games else None
+        out["schedule_keys_first"] = sorted(list(games[0].keys())) if games else []
+        if games:
+            gpk = games[0].get("game_id")
+            try:
+                box = statsapi.boxscore_data(gpk)
+                away = box.get("away", {})
+                home = box.get("home", {})
+                out["box_top_keys"] = sorted(list(box.keys()))
+                out["box_away_keys"] = sorted(list(away.keys()))
+                out["box_home_keys"] = sorted(list(home.keys()))
+                out["away_battingOrder"] = away.get("battingOrder")
+                out["home_battingOrder"] = home.get("battingOrder")
+                out["away_players_count"] = len(away.get("players", {}))
+                home_players = home.get("players", {})
+                if home_players:
+                    sample_key = next(iter(home_players))
+                    sample = home_players[sample_key]
+                    out["sample_player_key"] = sample_key
+                    out["sample_player_battingOrder_field"] = sample.get("battingOrder")
+                    out["sample_player_top_keys"] = sorted(list(sample.keys()))
+            except Exception as e:
+                out["box_error"] = f"{type(e).__name__}: {e}"
+    except Exception as e:
+        out["schedule_error"] = f"{type(e).__name__}: {e}"
+    return jsonify(out)
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5000"))
     _print_banner(port)
