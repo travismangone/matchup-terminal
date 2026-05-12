@@ -134,7 +134,16 @@ def get_slate(date_str: str, log_fn: Callable[[str], None] = print) -> List[Dict
 
 
 def _get_lineup(game_pk: int, side: str, log_fn: Callable[[str], None]) -> List[Dict]:
-    """Pull the posted lineup for one side of a game. Returns [] if not yet posted."""
+    """Pull the posted lineup for one side of a game. Returns [] if not yet posted.
+
+    statsapi.boxscore_data() returns the batting order in different shapes
+    depending on game state:
+      - Live / completed: team_block["battingOrder"] is a list of player IDs.
+      - Pre-game / some responses: each player record in team_block["players"]
+        has a "battingOrder" string like "100", "200", ..., "900" (the first
+        digit is the spot; trailing digits are sub-positions for replacements).
+    We try the explicit list first, then fall back to the per-player field.
+    """
     try:
         box = statsapi.boxscore_data(game_pk)
     except Exception as e:
@@ -142,22 +151,65 @@ def _get_lineup(game_pk: int, side: str, log_fn: Callable[[str], None]) -> List[
         return []
 
     team_block = box.get(side, {}) or {}
-    batting_order = team_block.get("battingOrder", []) or []
     players_block = team_block.get("players", {}) or {}
+    batting_order = team_block.get("battingOrder", []) or []
 
-    lineup: List[Dict] = []
-    for idx, pid in enumerate(batting_order, start=1):
-        key = f"ID{pid}" if not str(pid).startswith("ID") else str(pid)
+    def _player_entry(idx: int, pid_or_key) -> Optional[Dict]:
+        pid_str = str(pid_or_key)
+        key = pid_str if pid_str.startswith("ID") else f"ID{pid_str}"
         info = players_block.get(key, {}) or {}
         person = info.get("person", {}) or {}
-        stats = info.get("stats", {}).get("batting", {}) if info.get("stats") else {}
         bat_side = (info.get("batSide", {}) or {}).get("code") or "R"
-        lineup.append({
+        try:
+            player_id = int(person.get("id")) if person.get("id") else int(pid_str.replace("ID", ""))
+        except (TypeError, ValueError):
+            return None
+        return {
             "order": idx,
-            "player_id": int(person.get("id", pid)) if person.get("id") else int(str(pid).replace("ID", "")),
+            "player_id": player_id,
             "name": person.get("fullName", info.get("name", "Unknown")),
             "bat_side": bat_side,  # "L", "R", or "S"
-        })
+        }
+
+    # Path A: explicit battingOrder list.
+    lineup: List[Dict] = []
+    if batting_order:
+        for idx, pid in enumerate(batting_order, start=1):
+            entry = _player_entry(idx, pid)
+            if entry:
+                lineup.append(entry)
+        if lineup:
+            return lineup
+
+    # Path B: per-player battingOrder field. Starters are "100","200",..."900";
+    # replacements have "101","201",etc. Keep the lowest sub-position per spot.
+    by_spot: Dict[int, Dict] = {}
+    for key, info in players_block.items():
+        bo = info.get("battingOrder")
+        if not bo:
+            continue
+        try:
+            bo_int = int(bo)
+        except (TypeError, ValueError):
+            continue
+        spot = bo_int // 100
+        sub = bo_int % 100
+        if spot < 1 or spot > 9:
+            continue
+        existing = by_spot.get(spot)
+        if existing is None or sub < existing["_sub"]:
+            entry = _player_entry(spot, key)
+            if entry:
+                entry["_sub"] = sub
+                by_spot[spot] = entry
+
+    for spot in sorted(by_spot.keys()):
+        e = by_spot[spot]
+        e.pop("_sub", None)
+        lineup.append(e)
+
+    if not lineup:
+        _safe_log(log_fn, f"  lineup empty for game {game_pk} side {side}: batting_order_len={len(batting_order)} players_block_size={len(players_block)}")
     return lineup
 
 
