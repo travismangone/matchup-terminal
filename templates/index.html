@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Matchup Terminal</title>
+<style>
+  :root {
+    --bg: #0d0f12;
+    --panel: #14181d;
+    --panel-2: #1a2027;
+    --border: #232a33;
+    --text: #d8dde3;
+    --muted: #8a93a0;
+    --accent: #f5a623;
+    --accent-dim: #b07a1a;
+    --good: #4caf50;
+    --bad: #ef5350;
+    --link: #8ab4f8;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg); color: var(--text);
+    font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    font-size: 13px; line-height: 1.45;
+  }
+  header {
+    padding: 14px 22px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 18px; background: var(--panel);
+  }
+  header h1 {
+    margin: 0; font-size: 14px; font-weight: 600; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--accent);
+  }
+  header .sub { color: var(--muted); font-size: 12px; }
+  main { padding: 18px 22px 60px; max-width: 1400px; margin: 0 auto; }
+  .controls {
+    display: flex; gap: 12px; align-items: center; margin-bottom: 18px;
+    flex-wrap: wrap;
+  }
+  .controls label { color: var(--muted); font-size: 12px; }
+  .controls input[type="date"] {
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+    padding: 6px 8px; border-radius: 4px; font-family: inherit; font-size: 13px;
+  }
+  button {
+    background: var(--accent); color: #1a1300; border: 0; padding: 7px 14px;
+    border-radius: 4px; font-family: inherit; font-weight: 600; font-size: 12px;
+    text-transform: uppercase; letter-spacing: 0.06em; cursor: pointer;
+  }
+  button:disabled { background: var(--accent-dim); cursor: not-allowed; opacity: 0.7; }
+  button.secondary { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); }
+  .status-pill {
+    display: inline-block; padding: 3px 9px; border-radius: 10px;
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+    background: var(--panel-2); color: var(--muted); border: 1px solid var(--border);
+  }
+  .status-pill.running { color: var(--accent); border-color: var(--accent); }
+  .status-pill.done { color: var(--good); border-color: var(--good); }
+  .status-pill.error { color: var(--bad); border-color: var(--bad); }
+
+  .panel {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 6px; margin-bottom: 16px; overflow: hidden;
+  }
+  .panel-header {
+    padding: 8px 14px; border-bottom: 1px solid var(--border);
+    color: var(--accent); font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.08em; background: var(--panel-2);
+  }
+  .panel-body { padding: 12px 14px; }
+
+  pre.log {
+    margin: 0; padding: 10px 14px; background: #07090b;
+    color: #b6bdc6; font-size: 12px; max-height: 220px; overflow: auto;
+    white-space: pre-wrap; word-break: break-word;
+  }
+
+  .pitchers {
+    display: grid; gap: 10px;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  }
+  .pcard {
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 5px;
+    padding: 10px 12px; font-size: 12px;
+  }
+  .pcard .name { font-weight: 600; color: var(--text); }
+  .pcard .meta { color: var(--muted); font-size: 11px; margin-bottom: 8px; }
+  .pcard .row { display: flex; justify-content: space-between; gap: 8px; }
+  .pcard .row + .row { margin-top: 3px; }
+  .pcard .label { color: var(--muted); }
+  .pcard .arsenal { margin-top: 6px; font-size: 11px; color: #c5cbd2; }
+  .pcard .arsenal span { display: inline-block; margin-right: 6px; }
+
+  table.batters {
+    width: 100%; border-collapse: collapse; font-size: 12px;
+  }
+  table.batters th, table.batters td {
+    padding: 6px 10px; border-bottom: 1px solid var(--border); text-align: left;
+  }
+  table.batters th {
+    background: var(--panel-2); color: var(--muted); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.06em; font-size: 11px;
+    cursor: pointer; user-select: none;
+  }
+  table.batters th.num, table.batters td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  table.batters tr:hover td { background: #11161c; }
+
+  .edge-cell { font-weight: 600; }
+  .footer-note { color: var(--muted); font-size: 11px; margin-top: 18px; }
+  a { color: var(--link); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Matchup Terminal</h1>
+  <span class="sub">pitch-type matchup engine // baseball savant + mlb stats api</span>
+</header>
+
+<main>
+  <div class="controls">
+    <label for="date-input">Date</label>
+    <input type="date" id="date-input" />
+    <button id="run-btn">Run Analysis</button>
+    <button id="refresh-btn" class="secondary">Refresh</button>
+    <span id="status-pill" class="status-pill">idle</span>
+    <span id="elapsed" class="sub" style="color: var(--muted);"></span>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">Run Log</div>
+    <pre class="log" id="log">(no run yet)</pre>
+  </div>
+
+  <div class="panel" id="pitcher-panel" style="display:none;">
+    <div class="panel-header">Starting Pitchers</div>
+    <div class="panel-body">
+      <div class="pitchers" id="pitchers"></div>
+    </div>
+  </div>
+
+  <div class="panel" id="batter-panel" style="display:none;">
+    <div class="panel-header">
+      Batters (sorted by wOBA edge, click any column to re-sort)
+    </div>
+    <div class="panel-body" style="padding:0;">
+      <table class="batters" id="batters">
+        <thead>
+          <tr>
+            <th data-key="order" class="num">#</th>
+            <th data-key="name">Batter</th>
+            <th data-key="team">Team</th>
+            <th data-key="bat_side">Side</th>
+            <th data-key="vs_pitcher">vs Pitcher</th>
+            <th data-key="pitcher_throws">P</th>
+            <th data-key="proj_woba" class="num">Proj wOBA</th>
+            <th data-key="woba_edge" class="num">wOBA Edge</th>
+            <th data-key="proj_iso" class="num">Proj ISO</th>
+            <th data-key="iso_edge" class="num">ISO Edge</th>
+            <th data-key="pa_sample" class="num">PA</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="footer-note">
+    Numbers are usage-weighted averages of the batter's pitch-type wOBA / ISO against
+    today's pitcher's arsenal-by-side, shrunk toward league average for small samples.
+    Use as a first-pass filter, not a full point projection.
+  </div>
+</main>
+
+<script>
+  const $ = (sel) => document.querySelector(sel);
+  const dateInput = $("#date-input");
+  const runBtn = $("#run-btn");
+  const refreshBtn = $("#refresh-btn");
+  const statusPill = $("#status-pill");
+  const elapsedEl = $("#elapsed");
+  const logEl = $("#log");
+  const pitcherPanel = $("#pitcher-panel");
+  const pitchersEl = $("#pitchers");
+  const batterPanel = $("#batter-panel");
+  const battersBody = document.querySelector("#batters tbody");
+
+  // Default date = today (in user's local time).
+  (function () {
+    const d = new Date();
+    const iso = d.getFullYear() + "-" +
+      String(d.getMonth() + 1).padStart(2, "0") + "-" +
+      String(d.getDate()).padStart(2, "0");
+    dateInput.value = iso;
+  })();
+
+  let battersData = [];
+  let sortKey = "woba_edge";
+  let sortDir = -1;
+  let pollTimer = null;
+
+  runBtn.addEventListener("click", async () => {
+    const date = dateInput.value;
+    if (!date) return;
+    runBtn.disabled = true;
+    setStatus("running");
+    logEl.textContent = "starting...";
+    try {
+      const r = await fetch("/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date: date }),
+      });
+      const j = await r.json();
+      if (j.status !== "started") {
+        logEl.textContent = "could not start: " + JSON.stringify(j);
+        runBtn.disabled = false;
+        setStatus("error");
+        return;
+      }
+      startPolling();
+    } catch (e) {
+      logEl.textContent = "request failed: " + e;
+      runBtn.disabled = false;
+      setStatus("error");
+    }
+  });
+
+  refreshBtn.addEventListener("click", refreshOnce);
+
+  function startPolling() {
+    stopPolling();
+    pollTimer = setInterval(refreshOnce, 1500);
+    refreshOnce();
+  }
+  function stopPolling() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  }
+
+  async function refreshOnce() {
+    try {
+      const r = await fetch("/status");
+      const s = await r.json();
+      setStatus(s.status);
+      logEl.textContent = (s.log || []).join("\n") || "(no log yet)";
+      if (s.started_at) {
+        const t = (Date.now() - new Date(s.started_at).getTime()) / 1000;
+        elapsedEl.textContent = " elapsed " + t.toFixed(0) + "s";
+      }
+      if (s.status === "done" && s.result) {
+        renderResult(s.result);
+        runBtn.disabled = false;
+        stopPolling();
+      } else if (s.status === "error") {
+        runBtn.disabled = false;
+        stopPolling();
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  function setStatus(s) {
+    statusPill.className = "status-pill " + s;
+    statusPill.textContent = s;
+  }
+
+  function renderResult(res) {
+    // Pitchers
+    pitchersEl.innerHTML = "";
+    (res.pitchers || []).forEach((p) => {
+      const card = document.createElement("div");
+      card.className = "pcard";
+      const arsenalR = formatArsenal(p.arsenal.R);
+      const arsenalL = formatArsenal(p.arsenal.L);
+      const sR = p.splits && p.splits.R ? p.splits.R : null;
+      const sL = p.splits && p.splits.L ? p.splits.L : null;
+      card.innerHTML =
+        '<div class="name">' + escapeHtml(p.name || "?") + ' (' + escapeHtml(p.throws || "?") + 'HP)</div>' +
+        '<div class="meta">' + escapeHtml(p.team || "") + ' vs ' + escapeHtml(p.opponent || "") +
+        ' &middot; ' + (p.n_pitches || 0) + ' pitches (30d)</div>' +
+        '<div class="row"><span class="label">vs RHB wOBA / ISO</span><span>' +
+        fmt3(sR ? sR.woba : null) + ' / ' + fmt3(sR ? sR.iso : null) + '</span></div>' +
+        '<div class="row"><span class="label">vs LHB wOBA / ISO</span><span>' +
+        fmt3(sL ? sL.woba : null) + ' / ' + fmt3(sL ? sL.iso : null) + '</span></div>' +
+        '<div class="arsenal"><div class="label">arsenal vs R:</div>' + arsenalR + '</div>' +
+        '<div class="arsenal"><div class="label">arsenal vs L:</div>' + arsenalL + '</div>';
+      pitchersEl.appendChild(card);
+    });
+    pitcherPanel.style.display = (res.pitchers && res.pitchers.length) ? "" : "none";
+
+    // Batters
+    battersData = res.batters || [];
+    renderBatters();
+    batterPanel.style.display = battersData.length ? "" : "none";
+  }
+
+  function formatArsenal(obj) {
+    if (!obj) return '<span class="label">(none)</span>';
+    const items = Object.entries(obj)
+      .filter(([k, v]) => v && v > 0.01)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6);
+    if (!items.length) return '<span class="label">(none)</span>';
+    return items.map(([k, v]) => '<span>' + k + ' ' + (v * 100).toFixed(0) + '%</span>').join("");
+  }
+
+  function renderBatters() {
+    const sorted = battersData.slice().sort((a, b) => {
+      const av = a[sortKey], bv = b[sortKey];
+      if (typeof av === "number" && typeof bv === "number") return (av - bv) * sortDir;
+      return String(av).localeCompare(String(bv)) * sortDir;
+    });
+    battersBody.innerHTML = "";
+    sorted.forEach((b) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML =
+        '<td class="num">' + b.order + '</td>' +
+        '<td>' + escapeHtml(b.name) + '</td>' +
+        '<td>' + escapeHtml(b.team || "") + '</td>' +
+        '<td>' + escapeHtml(b.bat_side) + '</td>' +
+        '<td>' + escapeHtml(b.vs_pitcher || "") + '</td>' +
+        '<td>' + escapeHtml(b.pitcher_throws || "") + '</td>' +
+        '<td class="num">' + fmt3(b.proj_woba) + '</td>' +
+        '<td class="num edge-cell" style="color:' + edgeColor(b.woba_edge, 0.05) + '">' + fmtSigned(b.woba_edge) + '</td>' +
+        '<td class="num">' + fmt3(b.proj_iso) + '</td>' +
+        '<td class="num edge-cell" style="color:' + edgeColor(b.iso_edge, 0.04) + '">' + fmtSigned(b.iso_edge) + '</td>' +
+        '<td class="num">' + (b.pa_sample || 0) + '</td>';
+      battersBody.appendChild(tr);
+    });
+  }
+
+  document.querySelectorAll("#batters th").forEach((th) => {
+    th.addEventListener("click", () => {
+      const k = th.getAttribute("data-key");
+      if (sortKey === k) sortDir *= -1;
+      else { sortKey = k; sortDir = -1; }
+      renderBatters();
+    });
+  });
+
+  function edgeColor(v, scale) {
+    if (v == null || isNaN(v)) return "var(--muted)";
+    const c = Math.max(-1, Math.min(1, v / scale));
+    if (c >= 0) {
+      const a = Math.round(120 + c * 135);
+      return 'rgb(60,' + a + ',80)';
+    } else {
+      const a = Math.round(120 + (-c) * 135);
+      return 'rgb(' + a + ',70,70)';
+    }
+  }
+  function fmt3(v) { return (v == null || isNaN(v)) ? "-" : v.toFixed(3); }
+  function fmtSigned(v) {
+    if (v == null || isNaN(v)) return "-";
+    return (v >= 0 ? "+" : "") + v.toFixed(3);
+  }
+  function escapeHtml(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  // Initial status pull on page load
+  refreshOnce();
+</script>
+</body>
+</html>
