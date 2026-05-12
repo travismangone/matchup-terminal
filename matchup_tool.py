@@ -111,10 +111,15 @@ def get_slate(date_str: str, log_fn: Callable[[str], None] = print) -> List[Dict
         game_pk = g.get("game_id")
         away_team = g.get("away_name")
         home_team = g.get("home_name")
-        away_pitcher_id = g.get("away_probable_pitcher_id") or g.get("away_pitcher_id")
-        home_pitcher_id = g.get("home_probable_pitcher_id") or g.get("home_pitcher_id")
-        away_pitcher_name = g.get("away_probable_pitcher") or g.get("away_pitcher_name")
-        home_pitcher_name = g.get("home_probable_pitcher") or g.get("home_pitcher_name")
+        away_pitcher_name = g.get("away_probable_pitcher") or g.get("away_pitcher_name") or ""
+        home_pitcher_name = g.get("home_probable_pitcher") or g.get("home_pitcher_name") or ""
+
+        # statsapi.schedule() does not include probable pitcher IDs. Resolve
+        # them from the boxscore for completed/in-progress games, and from a
+        # name lookup for future-dated games where no boxscore exists yet.
+        away_pitcher_id, home_pitcher_id = _resolve_pitcher_ids(
+            game_pk, away_pitcher_name, home_pitcher_name, log_fn
+        )
 
         away_lineup = _get_lineup(game_pk, side="away", log_fn=log_fn)
         home_lineup = _get_lineup(game_pk, side="home", log_fn=log_fn)
@@ -131,6 +136,53 @@ def get_slate(date_str: str, log_fn: Callable[[str], None] = print) -> List[Dict
             "home_lineup": home_lineup,
         })
     return slate
+
+
+def _resolve_pitcher_ids(game_pk: Optional[int], away_name: str, home_name: str,
+                         log_fn: Callable[[str], None]) -> tuple:
+    """Return (away_pitcher_id, home_pitcher_id) using boxscore first, then name lookup."""
+    away_id: Optional[int] = None
+    home_id: Optional[int] = None
+    if game_pk:
+        try:
+            box = statsapi.boxscore_data(game_pk)
+            away_pitchers = (box.get("away", {}) or {}).get("pitchers", []) or []
+            home_pitchers = (box.get("home", {}) or {}).get("pitchers", []) or []
+            if away_pitchers:
+                away_id = int(away_pitchers[0])
+            if home_pitchers:
+                home_id = int(home_pitchers[0])
+        except Exception as e:
+            _safe_log(log_fn, f"  boxscore pitcher-id fetch failed for game {game_pk}: {e}")
+
+    if away_id is None and away_name:
+        away_id = _lookup_player_id(away_name, log_fn)
+    if home_id is None and home_name:
+        home_id = _lookup_player_id(home_name, log_fn)
+    return away_id, home_id
+
+
+def _lookup_player_id(name: str, log_fn: Callable[[str], None]) -> Optional[int]:
+    """Best-effort name -> player_id via statsapi.lookup_player()."""
+    if not name:
+        return None
+    try:
+        hits = statsapi.lookup_player(name) or []
+    except Exception as e:
+        _safe_log(log_fn, f"  lookup_player({name!r}) failed: {e}")
+        return None
+    if not hits:
+        return None
+    for h in hits:
+        if (h.get("fullName") or "").lower() == name.lower():
+            try:
+                return int(h["id"])
+            except (KeyError, TypeError, ValueError):
+                continue
+    try:
+        return int(hits[0]["id"])
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 def _get_lineup(game_pk: int, side: str, log_fn: Callable[[str], None]) -> List[Dict]:
