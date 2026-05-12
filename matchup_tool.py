@@ -426,10 +426,13 @@ def analyze_slate(date_str: str, log_fn: Callable[[str], None] = print) -> Dict:
             own_team = g.get(f"{side}_team")
 
             if not pid:
+                _safe_log(log_fn, f"  SKIP {own_team}: no probable pitcher. game keys: {sorted(list(g.keys()))[:14]}")
+                _safe_log(log_fn, f"  SKIP {own_team}: away_pp_id={g.get('away_probable_pitcher_id')!r} home_pp_id={g.get('home_probable_pitcher_id')!r} away_pp={g.get('away_probable_pitcher')!r} home_pp={g.get('home_probable_pitcher')!r}")
                 skipped.append({"game": f"{g['away_team']} @ {g['home_team']}",
                                   "reason": f"no probable pitcher for {own_team}"})
                 continue
             if not lineup:
+                _safe_log(log_fn, f"  SKIP {opp_team}: no posted lineup (len={len(lineup)})")
                 skipped.append({"game": f"{g['away_team']} @ {g['home_team']}",
                                   "reason": f"no posted lineup for {opp_team}"})
                 continue
