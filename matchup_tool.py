@@ -358,12 +358,20 @@ def get_batter_profile(
     end_date: str,
     pitcher_throws: str,
     log_fn: Callable[[str], None] = print,
+    window: str = "season",
 ) -> Dict:
-    """Two-season Statcast for this batter vs the relevant pitcher hand,
-    grouped by pitch type. Returns Bayesian-shrunk wOBA / ISO per pitch type.
+    """Statcast for this batter vs the relevant pitcher hand, grouped by pitch type.
+    Returns Bayesian-shrunk wOBA / ISO per pitch type.
+
+    `window` controls the lookback:
+      - "season": current + previous season (default, BATTER_LOOKBACK_SEASONS).
+      - "last30": only the last 30 calendar days ending on end_date.
     """
     end = _dt.date.fromisoformat(end_date)
-    start = _dt.date(end.year - (BATTER_LOOKBACK_SEASONS - 1), 1, 1)
+    if window == "last30":
+        start = end - _dt.timedelta(days=30)
+    else:
+        start = _dt.date(end.year - (BATTER_LOOKBACK_SEASONS - 1), 1, 1)
     _safe_log(log_fn, f"    Pulling batter {batter_id} Statcast {start} -> {end} ...")
 
     try:
@@ -497,7 +505,7 @@ def score_matchup(
 # Top-level entry point
 # -----------------------------------------------------------------------------
 
-def analyze_slate(date_str: str, log_fn: Callable[[str], None] = print) -> Dict:
+def analyze_slate(date_str: str, log_fn: Callable[[str], None] = print, batter_window: str = "season") -> Dict:
     """Run the full pipeline for a single date.
 
     Returns:
@@ -509,7 +517,7 @@ def analyze_slate(date_str: str, log_fn: Callable[[str], None] = print) -> Dict:
       }
     """
     t0 = time.time()
-    _safe_log(log_fn, f"=== analyze_slate({date_str}) ===")
+    _safe_log(log_fn, f"=== analyze_slate({date_str}) batter_window={batter_window} ===")
 
     slate = get_slate(date_str, log_fn=log_fn)
 
@@ -562,7 +570,7 @@ def analyze_slate(date_str: str, log_fn: Callable[[str], None] = print) -> Dict:
 
             for b in lineup:
                 eff_side = _effective_bat_side(b["bat_side"], throws)
-                bprof = get_batter_profile(b["player_id"], date_str, throws, log_fn=log_fn)
+                bprof = get_batter_profile(b["player_id"], date_str, throws, log_fn=log_fn, window=batter_window)
                 score = score_matchup(prof, throws, bprof, b["bat_side"])
                 batters_out.append({
                     "batter_id": b["player_id"],
