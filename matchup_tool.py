@@ -287,11 +287,28 @@ def get_pitcher_profile(
     start = end - _dt.timedelta(days=PITCHER_ARSENAL_LOOKBACK_DAYS)
     _safe_log(log_fn, f"  Pulling pitcher {pitcher_id} Statcast {start} -> {end} ...")
 
-    try:
-        df = statcast_pitcher(start.isoformat(), end.isoformat(), pitcher_id)
-    except Exception as e:
-        _safe_log(log_fn, f"    pitcher fetch failed: {e}")
-        return _empty_pitcher_profile()
+    def _pull(s, e):
+        try:
+            return statcast_pitcher(s.isoformat(), e.isoformat(), pitcher_id)
+        except Exception as ex:
+            _safe_log(log_fn, f"    pitcher fetch failed: {ex}")
+            return None
+
+    df = _pull(start, end)
+
+    # Fallback windows when the 30-day pull is empty (e.g., pitcher hasn't
+    # appeared in the last month). Try season-to-date, then prior season.
+    if df is None or df.empty:
+        season_start = _dt.date(end.year, 1, 1)
+        if season_start < start:
+            _safe_log(log_fn, f"    no 30d data for {pitcher_id}; trying season {season_start} -> {end}")
+            df = _pull(season_start, end)
+
+    if df is None or df.empty:
+        prev_start = _dt.date(end.year - 1, 1, 1)
+        prev_end = _dt.date(end.year - 1, 12, 31)
+        _safe_log(log_fn, f"    no current-season data for {pitcher_id}; trying {prev_start} -> {prev_end}")
+        df = _pull(prev_start, prev_end)
 
     if df is None or df.empty:
         return _empty_pitcher_profile()
@@ -605,13 +622,34 @@ def analyze_slate(date_str: str, log_fn: Callable[[str], None] = print, batter_w
 
 
 def _infer_pitcher_throws(pitcher_id: int, end_date: str) -> str:
-    """Best-effort lookup of a pitcher's throwing hand. Falls back to 'R'."""
+    """Best-effort lookup of a pitcher's throwing hand. Falls back to 'R'.
+
+    The MLB Stats API `people` endpoint returns `pitchHand.code` ("L" or
+    "R") for each player. Earlier versions of this code called
+    `statsapi.lookup_player(pitcher_id)`, but `lookup_player` searches by
+    name string, not numeric id, so passing an int silently returned no
+    matches and we always fell back to "R" (every pitcher rendered as RHP).
+    """
+    # Primary: hit /api/v1/people/{id} for the canonical record.
     try:
-        info = statsapi.lookup_player(pitcher_id)
-        if info and isinstance(info, list):
-            code = (info[0].get("pitchHand", {}) or {}).get("code")
+        resp = statsapi.get("person", {"personId": int(pitcher_id)})
+        people = (resp or {}).get("people") or []
+        if people:
+            code = (people[0].get("pitchHand") or {}).get("code")
             if code in ("L", "R"):
                 return code
+    except Exception:
+        pass
+    # Secondary: try the recent Statcast pull's p_throws column as a fallback.
+    try:
+        end = _dt.date.fromisoformat(end_date)
+        start = end - _dt.timedelta(days=PITCHER_ARSENAL_LOOKBACK_DAYS)
+        df = statcast_pitcher(start.isoformat(), end.isoformat(), int(pitcher_id))
+        if df is not None and not df.empty and "p_throws" in df.columns:
+            vals = df["p_throws"].dropna().astype(str).str.upper().str[0]
+            vals = vals[vals.isin(["L", "R"])]
+            if not vals.empty:
+                return vals.iloc[-1]
     except Exception:
         pass
     return "R"
