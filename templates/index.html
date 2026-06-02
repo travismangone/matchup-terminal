@@ -196,6 +196,29 @@
     </div>
   </div>
 
+  <div class="panel" id="team-panel" style="display:none;">
+    <div class="panel-header">
+      Teams (lineups aggregated by team average, click any column to re-sort)
+    </div>
+    <div class="panel-body" style="padding:0;">
+      <table class="batters" id="teams-table">
+        <thead>
+          <tr>
+            <th data-key="team">Team</th>
+            <th data-key="vs_pitcher">vs Pitcher</th>
+            <th data-key="pitcher_throws">P</th>
+            <th data-key="hitters" class="num">Hitters</th>
+            <th data-key="avg_proj_woba" class="num">Avg Proj wOBA</th>
+            <th data-key="avg_woba_edge" class="num">Avg wOBA Edge</th>
+            <th data-key="avg_proj_iso" class="num">Avg Proj ISO</th>
+            <th data-key="avg_iso_edge" class="num">Avg ISO Edge</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
   <div class="footer-note">
     Numbers are usage-weighted averages of the batter's pitch-type wOBA / ISO against
     today's pitcher's arsenal-by-side, shrunk toward league average for small samples.
@@ -216,6 +239,8 @@
   const pitchersTableBody = document.querySelector("#pitchers-table tbody");
   const batterPanel = $("#batter-panel");
   const battersBody = document.querySelector("#batters tbody");
+  const teamPanel = $("#team-panel");
+  const teamsBody = document.querySelector("#teams-table tbody");
 
   // Default date = today (in user's local time).
   (function () {
@@ -232,6 +257,9 @@
   let pitchersData = [];
   let pSortKey = "name";
   let pSortDir = 1;
+  let teamsData = [];
+  let tSortKey = "avg_woba_edge";
+  let tSortDir = -1;
   let pollTimer = null;
 
   runBtn.addEventListener("click", async () => {
@@ -326,6 +354,39 @@
     battersData = res.batters || [];
     renderBatters();
     batterPanel.style.display = battersData.length ? "" : "none";
+
+    // Teams (aggregate hitters by team)
+    const teamMap = {};
+    battersData.forEach((b) => {
+      const key = b.team || "?";
+      if (!teamMap[key]) {
+        teamMap[key] = {
+          team: key,
+          vs_pitcher: b.vs_pitcher || "",
+          pitcher_throws: b.pitcher_throws || "",
+          hitters: 0,
+          _woba: 0, _wobaEdge: 0, _iso: 0, _isoEdge: 0,
+        };
+      }
+      const tm = teamMap[key];
+      tm.hitters += 1;
+      tm._woba += (b.proj_woba || 0);
+      tm._wobaEdge += (b.woba_edge || 0);
+      tm._iso += (b.proj_iso || 0);
+      tm._isoEdge += (b.iso_edge || 0);
+    });
+    teamsData = Object.values(teamMap).map((tm) => ({
+      team: tm.team,
+      vs_pitcher: tm.vs_pitcher,
+      pitcher_throws: tm.pitcher_throws,
+      hitters: tm.hitters,
+      avg_proj_woba: tm.hitters ? tm._woba / tm.hitters : null,
+      avg_woba_edge: tm.hitters ? tm._wobaEdge / tm.hitters : null,
+      avg_proj_iso: tm.hitters ? tm._iso / tm.hitters : null,
+      avg_iso_edge: tm.hitters ? tm._isoEdge / tm.hitters : null,
+    }));
+    renderTeams();
+    teamPanel.style.display = teamsData.length ? "" : "none";
   }
 
   function formatArsenal(obj) {
@@ -367,6 +428,32 @@
     });
   }
 
+  function renderTeams() {
+    const sorted = teamsData.slice().sort((a, b) => {
+      const av = a[tSortKey], bv = b[tSortKey];
+      const an = (av == null), bn = (bv == null);
+      if (an && bn) return 0;
+      if (an) return 1;
+      if (bn) return -1;
+      if (typeof av === "number" && typeof bv === "number") return (av - bv) * tSortDir;
+      return String(av).localeCompare(String(bv)) * tSortDir;
+    });
+    teamsBody.innerHTML = "";
+    sorted.forEach((t) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML =
+        '<td>' + escapeHtml(t.team) + '</td>' +
+        '<td>' + escapeHtml(t.vs_pitcher || "") + '</td>' +
+        '<td>' + escapeHtml(t.pitcher_throws || "") + '</td>' +
+        '<td class="num">' + (t.hitters || 0) + '</td>' +
+        '<td class="num">' + fmt3(t.avg_proj_woba) + '</td>' +
+        '<td class="num edge-cell" style="color:' + edgeColor(t.avg_woba_edge, 0.05) + '">' + fmtSigned(t.avg_woba_edge) + '</td>' +
+        '<td class="num">' + fmt3(t.avg_proj_iso) + '</td>' +
+        '<td class="num edge-cell" style="color:' + edgeColor(t.avg_iso_edge, 0.04) + '">' + fmtSigned(t.avg_iso_edge) + '</td>';
+      teamsBody.appendChild(tr);
+    });
+  }
+
   function renderBatters() {
     const sorted = battersData.slice().sort((a, b) => {
       const av = a[sortKey], bv = b[sortKey];
@@ -398,6 +485,15 @@
       if (pSortKey === k) pSortDir *= -1;
       else { pSortKey = k; pSortDir = 1; }
       renderPitchers();
+    });
+  });
+
+  document.querySelectorAll("#teams-table th").forEach((th) => {
+    th.addEventListener("click", () => {
+      const k = th.getAttribute("data-key");
+      if (tSortKey === k) tSortDir *= -1;
+      else { tSortKey = k; tSortDir = -1; }
+      renderTeams();
     });
   });
 
