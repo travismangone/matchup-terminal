@@ -65,6 +65,12 @@ PITCHER_ARSENAL_LOOKBACK_DAYS = 30
 # How many seasons of batter history to pull (current + previous).
 BATTER_LOOKBACK_SEASONS = 2
 
+# FIP / xFIP constants. FIP_CONSTANT roughly scales FIP to league ERA;
+# LEAGUE_HR_PER_FB is the league home-run-per-fly-ball rate used by xFIP to
+# replace a pitcher's actual HR with an expected HR total (regression signal).
+FIP_CONSTANT = 3.10
+LEAGUE_HR_PER_FB = 0.135
+
 logger = logging.getLogger(__name__)
 
 # Enable pybaseball's on-disk cache so repeated runs are fast.
@@ -338,15 +344,46 @@ def get_pitcher_profile(
             iso = _iso_from_events(sub["events"])
             splits[side] = {"woba": woba, "iso": iso}
 
+    # ---- FIP / xFIP (regression signal) ----
+    fip = None
+    xfip = None
+    if "events" in df.columns:
+        ev = df[df["events"].notna() & (df["events"] != "")]["events"]
+        hr = int((ev == "home_run").sum())
+        bb = int(ev.isin(["walk"]).sum())
+        ibb = int((ev == "intent_walk").sum())
+        hbp = int((ev == "hit_by_pitch").sum())
+        k = int(ev.isin(["strikeout", "strikeout_double_play"]).sum())
+        out_events = {
+            "strikeout", "strikeout_double_play", "field_out", "force_out",
+            "grounded_into_double_play", "double_play", "fielders_choice_out",
+            "sac_fly", "sac_bunt", "other_out", "triple_play",
+        }
+        outs = int(ev.isin(out_events).sum())
+        outs += int((ev == "double_play").sum()) + 2 * int((ev == "triple_play").sum())
+        outs += int((ev == "grounded_into_double_play").sum()) + int((ev == "strikeout_double_play").sum())
+        ip = outs / 3.0
+        fb = 0
+        if "bb_type" in df.columns:
+            fb = int(df["bb_type"].isin(["fly_ball", "popup"]).sum())
+        if ip > 0:
+            fip = float((13 * hr + 3 * (bb + ibb + hbp) - 2 * k) / ip + FIP_CONSTANT)
+            exp_hr = fb * LEAGUE_HR_PER_FB
+            xfip = float((13 * exp_hr + 3 * (bb + ibb + hbp) - 2 * k) / ip + FIP_CONSTANT)
+            fip = round(fip, 2)
+            xfip = round(xfip, 2)
+
     return {
         "arsenal": arsenal,
         "splits": splits,
         "n_pitches": int(len(df)),
+        "fip": fip,
+        "xfip": xfip,
     }
 
 
 def _empty_pitcher_profile() -> Dict:
-    return {"arsenal": {"R": {}, "L": {}}, "splits": {"R": {}, "L": {}}, "n_pitches": 0}
+    return {"arsenal": {"R": {}, "L": {}}, "splits": {"R": {}, "L": {}}, "n_pitches": 0, "fip": None, "xfip": None}
 
 
 def _iso_from_events(events: pd.Series) -> float:
@@ -580,6 +617,8 @@ def analyze_slate(date_str: str, log_fn: Callable[[str], None] = print, batter_w
                     "arsenal": prof["arsenal"],
                     "splits": prof["splits"],
                     "n_pitches": prof["n_pitches"],
+                    "fip": prof.get("fip"),
+                    "xfip": prof.get("xfip"),
                 })
 
             prof = pitcher_cache[pid]
