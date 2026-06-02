@@ -86,7 +86,7 @@ def _snapshot() -> Dict[str, Any]:
 # Background worker
 # -----------------------------------------------------------------------------
 
-def _run_analysis(date_str: str) -> None:
+def _run_analysis(date_str: str, batter_window: str = "season") -> None:
     try:
         with _state_lock:
             _state["status"] = "running"
@@ -98,7 +98,7 @@ def _run_analysis(date_str: str) -> None:
             _state["error"] = None
             _state["cancel_requested"] = False
 
-        result = matchup_tool.analyze_slate(date_str, log_fn=_append_log)
+        result = matchup_tool.analyze_slate(date_str, log_fn=_append_log, batter_window=batter_window)
 
         with _state_lock:
             _state["status"] = "done"
@@ -129,6 +129,9 @@ def run():
 
     data = request.get_json(silent=True) or request.form or {}
     date_str = (data.get("date") if hasattr(data, "get") else None) or _dt.date.today().isoformat()
+    batter_window = (data.get("batter_window") if hasattr(data, "get") else None) or "season"
+    if batter_window not in ("season", "last30"):
+        return jsonify({"status": "error", "error": f"bad batter_window: {batter_window}"}), 400
 
     # Basic validation: must parse as YYYY-MM-DD.
     try:
@@ -142,7 +145,7 @@ def run():
         return jsonify({"status": "busy", "message": "analysis already in progress"}), 409
 
     _worker_thread = threading.Thread(
-        target=_run_analysis, args=(date_str,), daemon=True
+        target=_run_analysis, args=(date_str, batter_window), daemon=True
     )
     _worker_thread.start()
     return jsonify({"status": "started", "date": date_str})
