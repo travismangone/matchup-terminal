@@ -110,6 +110,8 @@
   }
   table.batters th.num, table.batters td.num { text-align: right; font-variant-numeric: tabular-nums; }
   table.batters tr:hover td { background: #11161c; }
+  td.arsenal-cell { font-size: 11px; color: #c5cbd2; }
+  td.arsenal-cell span { display: inline-block; margin-right: 6px; }
 
   .edge-cell { font-weight: 600; }
   .footer-note { color: var(--muted); font-size: 11px; margin-top: 18px; }
@@ -143,9 +145,28 @@
   </div>
 
   <div class="panel" id="pitcher-panel" style="display:none;">
-    <div class="panel-header">Starting Pitchers</div>
-    <div class="panel-body">
-      <div class="pitchers" id="pitchers"></div>
+    <div class="panel-header">
+      Starting Pitchers (click any column to re-sort)
+    </div>
+    <div class="panel-body" style="padding:0;">
+      <table class="batters" id="pitchers-table">
+        <thead>
+          <tr>
+            <th data-key="name">Pitcher</th>
+            <th data-key="throws">T</th>
+            <th data-key="team">Team</th>
+            <th data-key="opponent">Opponent</th>
+            <th data-key="n_pitches" class="num">Pitches 30d</th>
+            <th data-key="woba_r" class="num">wOBA vs R</th>
+            <th data-key="iso_r" class="num">ISO vs R</th>
+            <th data-key="woba_l" class="num">wOBA vs L</th>
+            <th data-key="iso_l" class="num">ISO vs L</th>
+            <th data-key="arsenal_r">Arsenal vs R</th>
+            <th data-key="arsenal_l">Arsenal vs L</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
     </div>
   </div>
 
@@ -192,7 +213,7 @@
   const elapsedEl = $("#elapsed");
   const logEl = $("#log");
   const pitcherPanel = $("#pitcher-panel");
-  const pitchersEl = $("#pitchers");
+  const pitchersTableBody = document.querySelector("#pitchers-table tbody");
   const batterPanel = $("#batter-panel");
   const battersBody = document.querySelector("#batters tbody");
 
@@ -208,6 +229,9 @@
   let battersData = [];
   let sortKey = "woba_edge";
   let sortDir = -1;
+  let pitchersData = [];
+  let pSortKey = "name";
+  let pSortDir = 1;
   let pollTimer = null;
 
   runBtn.addEventListener("click", async () => {
@@ -278,27 +302,25 @@
 
   function renderResult(res) {
     // Pitchers
-    pitchersEl.innerHTML = "";
-    (res.pitchers || []).forEach((p) => {
-      const card = document.createElement("div");
-      card.className = "pcard";
-      const arsenalR = formatArsenal(p.arsenal.R);
-      const arsenalL = formatArsenal(p.arsenal.L);
-      const sR = p.splits && p.splits.R ? p.splits.R : null;
-      const sL = p.splits && p.splits.L ? p.splits.L : null;
-      card.innerHTML =
-        '<div class="name">' + escapeHtml(p.name || "?") + ' (' + escapeHtml(p.throws || "?") + 'HP)</div>' +
-        '<div class="meta">' + escapeHtml(p.team || "") + ' vs ' + escapeHtml(p.opponent || "") +
-        ' &middot; ' + (p.n_pitches || 0) + ' pitches (30d)</div>' +
-        '<div class="row"><span class="label">vs RHB wOBA / ISO</span><span>' +
-        fmt3(sR ? sR.woba : null) + ' / ' + fmt3(sR ? sR.iso : null) + '</span></div>' +
-        '<div class="row"><span class="label">vs LHB wOBA / ISO</span><span>' +
-        fmt3(sL ? sL.woba : null) + ' / ' + fmt3(sL ? sL.iso : null) + '</span></div>' +
-        '<div class="arsenal"><div class="label">arsenal vs R:</div>' + arsenalR + '</div>' +
-        '<div class="arsenal"><div class="label">arsenal vs L:</div>' + arsenalL + '</div>';
-      pitchersEl.appendChild(card);
+    pitchersData = (res.pitchers || []).map((p) => {
+      const sR = (p.splits && p.splits.R) ? p.splits.R : {};
+      const sL = (p.splits && p.splits.L) ? p.splits.L : {};
+      return {
+        name: p.name || "?",
+        throws: p.throws || "",
+        team: p.team || "",
+        opponent: p.opponent || "",
+        n_pitches: p.n_pitches || 0,
+        woba_r: (sR.woba != null ? sR.woba : null),
+        iso_r: (sR.iso != null ? sR.iso : null),
+        woba_l: (sL.woba != null ? sL.woba : null),
+        iso_l: (sL.iso != null ? sL.iso : null),
+        arsenal_r: formatArsenal(p.arsenal ? p.arsenal.R : null),
+        arsenal_l: formatArsenal(p.arsenal ? p.arsenal.L : null),
+      };
     });
-    pitcherPanel.style.display = (res.pitchers && res.pitchers.length) ? "" : "none";
+    renderPitchers();
+    pitcherPanel.style.display = pitchersData.length ? "" : "none";
 
     // Batters
     battersData = res.batters || [];
@@ -314,6 +336,35 @@
       .slice(0, 6);
     if (!items.length) return '<span class="label">(none)</span>';
     return items.map(([k, v]) => '<span>' + k + ' ' + (v * 100).toFixed(0) + '%</span>').join("");
+  }
+
+  function renderPitchers() {
+    const sorted = pitchersData.slice().sort((a, b) => {
+      const av = a[pSortKey], bv = b[pSortKey];
+      const an = (av == null), bn = (bv == null);
+      if (an && bn) return 0;
+      if (an) return 1;
+      if (bn) return -1;
+      if (typeof av === "number" && typeof bv === "number") return (av - bv) * pSortDir;
+      return String(av).localeCompare(String(bv)) * pSortDir;
+    });
+    pitchersTableBody.innerHTML = "";
+    sorted.forEach((p) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML =
+        '<td>' + escapeHtml(p.name) + '</td>' +
+        '<td>' + escapeHtml(p.throws) + '</td>' +
+        '<td>' + escapeHtml(p.team) + '</td>' +
+        '<td>' + escapeHtml(p.opponent) + '</td>' +
+        '<td class="num">' + (p.n_pitches || 0) + '</td>' +
+        '<td class="num">' + fmt3(p.woba_r) + '</td>' +
+        '<td class="num">' + fmt3(p.iso_r) + '</td>' +
+        '<td class="num">' + fmt3(p.woba_l) + '</td>' +
+        '<td class="num">' + fmt3(p.iso_l) + '</td>' +
+        '<td class="arsenal-cell">' + (p.arsenal_r || "") + '</td>' +
+        '<td class="arsenal-cell">' + (p.arsenal_l || "") + '</td>';
+      pitchersTableBody.appendChild(tr);
+    });
   }
 
   function renderBatters() {
@@ -340,6 +391,15 @@
       battersBody.appendChild(tr);
     });
   }
+
+  document.querySelectorAll("#pitchers-table th").forEach((th) => {
+    th.addEventListener("click", () => {
+      const k = th.getAttribute("data-key");
+      if (pSortKey === k) pSortDir *= -1;
+      else { pSortKey = k; pSortDir = 1; }
+      renderPitchers();
+    });
+  });
 
   document.querySelectorAll("#batters th").forEach((th) => {
     th.addEventListener("click", () => {
