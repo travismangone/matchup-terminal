@@ -44,6 +44,10 @@
     background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
     padding: 6px 8px; border-radius: 4px; font-family: inherit; font-size: 13px;
   }
+  .controls select {
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+    padding: 6px 8px; border-radius: 4px; font-family: inherit; font-size: 13px;
+  }
   button {
     background: var(--accent); color: #1a1300; border: 0; padding: 7px 14px;
     border-radius: 4px; font-family: inherit; font-weight: 600; font-size: 12px;
@@ -122,6 +126,11 @@
   <div class="controls">
     <label for="date-input">Date</label>
     <input type="date" id="date-input" />
+    <label for="window-input">Batter window</label>
+    <select id="window-input">
+      <option value="season">Season</option>
+      <option value="last30">Last 30 days</option>
+    </select>
     <button id="run-btn">Run Analysis</button>
     <button id="refresh-btn" class="secondary">Refresh</button>
     <span id="status-pill" class="status-pill">idle</span>
@@ -176,6 +185,7 @@
 <script>
   const $ = (sel) => document.querySelector(sel);
   const dateInput = $("#date-input");
+  const windowInput = $("#window-input");
   const runBtn = $("#run-btn");
   const refreshBtn = $("#refresh-btn");
   const statusPill = $("#status-pill");
@@ -210,7 +220,7 @@
       const r = await fetch("/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date: date }),
+        body: JSON.stringify({ date: date, batter_window: windowInput.value }),
       });
       const j = await r.json();
       if (j.status !== "started") {
