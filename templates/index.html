@@ -157,6 +157,9 @@
             <th data-key="team">Team</th>
             <th data-key="opponent">Opponent</th>
             <th data-key="n_pitches" class="num">Pitches 30d</th>
+              <th data-key="fip" class="num">FIP</th>
+              <th data-key="xfip" class="num">xFIP</th>
+              <th data-key="xfip_minus_fip" class="num">xFIP-FIP</th>
             <th data-key="woba_r" class="num">wOBA vs R</th>
             <th data-key="iso_r" class="num">ISO vs R</th>
             <th data-key="woba_l" class="num">wOBA vs L</th>
@@ -339,6 +342,9 @@
         team: p.team || "",
         opponent: p.opponent || "",
         n_pitches: p.n_pitches || 0,
+        fip: (p.fip != null ? p.fip : null),
+        xfip: (p.xfip != null ? p.xfip : null),
+        xfip_minus_fip: ((p.fip != null && p.xfip != null) ? (p.xfip - p.fip) : null),
         woba_r: (sR.woba != null ? sR.woba : null),
         iso_r: (sR.iso != null ? sR.iso : null),
         woba_l: (sL.woba != null ? sL.woba : null),
@@ -418,6 +424,9 @@
         '<td>' + escapeHtml(p.team) + '</td>' +
         '<td>' + escapeHtml(p.opponent) + '</td>' +
         '<td class="num">' + (p.n_pitches || 0) + '</td>' +
+        '<td class="num">' + fmt2(p.fip) + '</td>' +
+        '<td class="num">' + fmt2(p.xfip) + '</td>' +
+        '<td class="num">' + fmt2Signed(p.xfip_minus_fip) + '</td>' +
         '<td class="num">' + fmt3(p.woba_r) + '</td>' +
         '<td class="num">' + fmt3(p.iso_r) + '</td>' +
         '<td class="num">' + fmt3(p.woba_l) + '</td>' +
@@ -518,6 +527,11 @@
     }
   }
   function fmt3(v) { return (v == null || isNaN(v)) ? "-" : v.toFixed(3); }
+  function fmt2(v) { return (v == null || isNaN(v)) ? "-" : v.toFixed(2); }
+  function fmt2Signed(v) {
+    if (v == null || isNaN(v)) return "-";
+    return (v >= 0 ? "+" : "") + v.toFixed(2);
+  }
   function fmtSigned(v) {
     if (v == null || isNaN(v)) return "-";
     return (v >= 0 ? "+" : "") + v.toFixed(3);
