@@ -373,17 +373,42 @@ def get_pitcher_profile(
             fip = round(fip, 2)
             xfip = round(xfip, 2)
 
+    # ---- Strikeout % and Walk % (30-day window uses the df above) ----
+    rates_30d = _k_bb_rates(df)
+    # Season-to-date window: dedicated pull so the season column is accurate
+    # regardless of any fallback applied to the 30-day df.
+    season_df = _pull(_dt.date(end.year, 1, 1), end)
+    rates_season = _k_bb_rates(season_df)
+
     return {
         "arsenal": arsenal,
         "splits": splits,
         "n_pitches": int(len(df)),
         "fip": fip,
         "xfip": xfip,
+        "k_pct_30d": rates_30d["k_pct"],
+        "bb_pct_30d": rates_30d["bb_pct"],
+        "k_pct_season": rates_season["k_pct"],
+        "bb_pct_season": rates_season["bb_pct"],
     }
 
 
+def _k_bb_rates(df) -> Dict[str, Optional[float]]:
+    """Return {"k_pct", "bb_pct"} as fractions of plate appearances.
+    A plate appearance is any row with a resolved (non-null) events value."""
+    if df is None or df.empty or "events" not in df.columns:
+        return {"k_pct": None, "bb_pct": None}
+    ev = df[df["events"].notna() & (df["events"] != "")]["events"]
+    pa = int(len(ev))
+    if pa <= 0:
+        return {"k_pct": None, "bb_pct": None}
+    k = int(ev.isin(["strikeout", "strikeout_double_play"]).sum())
+    bb = int(ev.isin(["walk", "intent_walk"]).sum())
+    return {"k_pct": round(100.0 * k / pa, 1), "bb_pct": round(100.0 * bb / pa, 1)}
+
+
 def _empty_pitcher_profile() -> Dict:
-    return {"arsenal": {"R": {}, "L": {}}, "splits": {"R": {}, "L": {}}, "n_pitches": 0, "fip": None, "xfip": None}
+    return {"arsenal": {"R": {}, "L": {}}, "splits": {"R": {}, "L": {}}, "n_pitches": 0, "fip": None, "xfip": None, "k_pct_30d": None, "bb_pct_30d": None, "k_pct_season": None, "bb_pct_season": None}
 
 
 def _iso_from_events(events: pd.Series) -> float:
@@ -619,6 +644,10 @@ def analyze_slate(date_str: str, log_fn: Callable[[str], None] = print, batter_w
                     "n_pitches": prof["n_pitches"],
                     "fip": prof.get("fip"),
                     "xfip": prof.get("xfip"),
+                    "k_pct_30d": prof.get("k_pct_30d"),
+                    "bb_pct_30d": prof.get("bb_pct_30d"),
+                    "k_pct_season": prof.get("k_pct_season"),
+                    "bb_pct_season": prof.get("bb_pct_season"),
                 })
 
             prof = pitcher_cache[pid]
