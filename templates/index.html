@@ -160,6 +160,10 @@
               <th data-key="fip" class="num">FIP</th>
               <th data-key="xfip" class="num">xFIP</th>
               <th data-key="xfip_minus_fip" class="num">xFIP-FIP</th>
+              <th data-key="k_pct_30d" class="num">K% 30d</th>
+              <th data-key="bb_pct_30d" class="num">BB% 30d</th>
+              <th data-key="k_pct_season" class="num">K% Szn</th>
+              <th data-key="bb_pct_season" class="num">BB% Szn</th>
             <th data-key="woba_r" class="num">wOBA vs R</th>
             <th data-key="iso_r" class="num">ISO vs R</th>
             <th data-key="woba_l" class="num">wOBA vs L</th>
@@ -345,6 +349,10 @@
         fip: (p.fip != null ? p.fip : null),
         xfip: (p.xfip != null ? p.xfip : null),
         xfip_minus_fip: ((p.fip != null && p.xfip != null) ? (p.xfip - p.fip) : null),
+        k_pct_30d: (p.k_pct_30d != null ? p.k_pct_30d : null),
+        bb_pct_30d: (p.bb_pct_30d != null ? p.bb_pct_30d : null),
+        k_pct_season: (p.k_pct_season != null ? p.k_pct_season : null),
+        bb_pct_season: (p.bb_pct_season != null ? p.bb_pct_season : null),
         woba_r: (sR.woba != null ? sR.woba : null),
         iso_r: (sR.iso != null ? sR.iso : null),
         woba_l: (sL.woba != null ? sL.woba : null),
@@ -427,6 +435,10 @@
         '<td class="num">' + fmt2(p.fip) + '</td>' +
         '<td class="num">' + fmt2(p.xfip) + '</td>' +
         '<td class="num">' + fmt2Signed(p.xfip_minus_fip) + '</td>' +
+        '<td class="num">' + fmtPct(p.k_pct_30d) + '</td>' +
+        '<td class="num">' + fmtPct(p.bb_pct_30d) + '</td>' +
+        '<td class="num">' + fmtPct(p.k_pct_season) + '</td>' +
+        '<td class="num">' + fmtPct(p.bb_pct_season) + '</td>' +
         '<td class="num">' + fmt3(p.woba_r) + '</td>' +
         '<td class="num">' + fmt3(p.iso_r) + '</td>' +
         '<td class="num">' + fmt3(p.woba_l) + '</td>' +
@@ -528,6 +540,7 @@
   }
   function fmt3(v) { return (v == null || isNaN(v)) ? "-" : v.toFixed(3); }
   function fmt2(v) { return (v == null || isNaN(v)) ? "-" : v.toFixed(2); }
+  function fmtPct(v) { return (v == null || isNaN(v)) ? "-" : v.toFixed(1) + "%"; }
   function fmt2Signed(v) {
     if (v == null || isNaN(v)) return "-";
     return (v >= 0 ? "+" : "") + v.toFixed(2);
