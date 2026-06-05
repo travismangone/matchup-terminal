@@ -439,10 +439,10 @@
         '<td class="num">' + fmtPct(p.bb_pct_30d) + '</td>' +
         '<td class="num">' + fmtPct(p.k_pct_season) + '</td>' +
         '<td class="num">' + fmtPct(p.bb_pct_season) + '</td>' +
-        '<td class="num">' + fmt3(p.woba_r) + '</td>' +
-        '<td class="num">' + fmt3(p.iso_r) + '</td>' +
-        '<td class="num">' + fmt3(p.woba_l) + '</td>' +
-        '<td class="num">' + fmt3(p.iso_l) + '</td>' +
+        '<td class="num edge-cell" style="color:' + pitchColor(p.woba_r, 0.315, 0.06) + '">' + fmt3(p.woba_r) + '</td>' +
+        '<td class="num edge-cell" style="color:' + pitchColor(p.iso_r, 0.150, 0.06) + '">' + fmt3(p.iso_r) + '</td>' +
+        '<td class="num edge-cell" style="color:' + pitchColor(p.woba_l, 0.315, 0.06) + '">' + fmt3(p.woba_l) + '</td>' +
+        '<td class="num edge-cell" style="color:' + pitchColor(p.iso_l, 0.150, 0.06) + '">' + fmt3(p.iso_l) + '</td>' +
         '<td class="arsenal-cell">' + (p.arsenal_r || "") + '</td>' +
         '<td class="arsenal-cell">' + (p.arsenal_l || "") + '</td>';
       pitchersTableBody.appendChild(tr);
@@ -540,6 +540,13 @@
   }
   function fmt3(v) { return (v == null || isNaN(v)) ? "-" : v.toFixed(3); }
   function fmt2(v) { return (v == null || isNaN(v)) ? "-" : v.toFixed(2); }
+  // Color an allowed wOBA/ISO for a pitcher: below the league-average mid is
+  // good for the pitcher (green), above it is bad (red). Reuses edgeColor by
+  // converting the absolute value into a signed deviation from the midpoint.
+  function pitchColor(v, mid, scale) {
+    if (v == null || isNaN(v)) return "var(--muted)";
+    return edgeColor(mid - v, scale);
+  }
   function fmtPct(v) { return (v == null || isNaN(v)) ? "-" : v.toFixed(1) + "%"; }
   function fmt2Signed(v) {
     if (v == null || isNaN(v)) return "-";
