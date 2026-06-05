@@ -347,6 +347,8 @@ def get_pitcher_profile(
     # ---- FIP / xFIP (regression signal) ----
     fip = None
     xfip = None
+    babip = None
+    lob_pct = None
     if "events" in df.columns:
         ev = df[df["events"].notna() & (df["events"] != "")]["events"]
         hr = int((ev == "home_run").sum())
@@ -373,6 +375,33 @@ def get_pitcher_profile(
             fip = round(fip, 2)
             xfip = round(xfip, 2)
 
+        # ---- BABIP and LOB% (luck / regression signals) ----
+        singles = int((ev == "single").sum())
+        doubles = int((ev == "double").sum())
+        triples = int((ev == "triple").sum())
+        sf = int((ev == "sac_fly").sum())
+        hits = singles + doubles + triples + hr
+        ab_events_b = {
+            "single", "double", "triple", "home_run", "strikeout", 
+            "strikeout_double_play", "field_out", "force_out", 
+            "grounded_into_double_play", "double_play", "field_error", 
+            "fielders_choice", "fielders_choice_out", "triple_play", 
+            "other_out", 
+        }
+        ab = int(ev.isin(ab_events_b).sum())
+        bip_denom = ab - k - hr + sf
+        if bip_denom > 0:
+            babip = round(float((hits - hr) / bip_denom), 3)
+        # LOB%: share of baserunners stranded. Runs allowed are not in the
+        # pitch-event data, so estimate runs from the FIP-style components
+        # (same inputs used for xFIP) to keep this a regression signal.
+        reached = hits + bb + ibb + hbp
+        est_runs = 0.49 * (singles + bb + ibb + hbp) + 0.78 * doubles + 1.07 * triples + 1.40 * hr
+        lob_denom = reached - 1.4 * hr
+        if lob_denom > 0:
+            lob_pct = round(float(100.0 * (reached - est_runs) / lob_denom), 1)
+            lob_pct = max(0.0, min(100.0, lob_pct))
+
     # ---- Strikeout % and Walk % (30-day window uses the df above) ----
     rates_30d = _k_bb_rates(df)
     # Season-to-date window: dedicated pull so the season column is accurate
@@ -390,6 +419,8 @@ def get_pitcher_profile(
         "bb_pct_30d": rates_30d["bb_pct"],
         "k_pct_season": rates_season["k_pct"],
         "bb_pct_season": rates_season["bb_pct"],
+        "babip": babip,
+        "lob_pct": lob_pct,
     }
 
 
@@ -408,7 +439,7 @@ def _k_bb_rates(df) -> Dict[str, Optional[float]]:
 
 
 def _empty_pitcher_profile() -> Dict:
-    return {"arsenal": {"R": {}, "L": {}}, "splits": {"R": {}, "L": {}}, "n_pitches": 0, "fip": None, "xfip": None, "k_pct_30d": None, "bb_pct_30d": None, "k_pct_season": None, "bb_pct_season": None}
+    return {"arsenal": {"R": {}, "L": {}}, "splits": {"R": {}, "L": {}}, "n_pitches": 0, "fip": None, "xfip": None, "k_pct_30d": None, "bb_pct_30d": None, "k_pct_season": None, "bb_pct_season": None, "babip": None, "lob_pct": None}
 
 
 def _iso_from_events(events: pd.Series) -> float:
