@@ -162,8 +162,8 @@
               <th data-key="xfip_minus_fip" class="num">xFIP-FIP</th>
               <th data-key="k_pct_30d" class="num">K% 30d</th>
               <th data-key="bb_pct_30d" class="num">BB% 30d</th>
-              <th data-key="k_pct_season" class="num">K% Szn</th>
-              <th data-key="bb_pct_season" class="num">BB% Szn</th>
+              <th data-key="k_pct_season" class="num szn-col">K% Szn</th>
+              <th data-key="bb_pct_season" class="num szn-col">BB% Szn</th>
             <th data-key="woba_r" class="num">wOBA vs R</th>
             <th data-key="iso_r" class="num">ISO vs R</th>
             <th data-key="woba_l" class="num">wOBA vs L</th>
@@ -297,6 +297,7 @@
   });
 
   refreshBtn.addEventListener("click", refreshOnce);
+  windowInput.addEventListener("change", applyWindowColumns);
 
   function startPolling() {
     stopPolling();
@@ -437,8 +438,8 @@
         '<td class="num">' + fmt2Signed(p.xfip_minus_fip) + '</td>' +
         '<td class="num">' + fmtPct(p.k_pct_30d) + '</td>' +
         '<td class="num">' + fmtPct(p.bb_pct_30d) + '</td>' +
-        '<td class="num">' + fmtPct(p.k_pct_season) + '</td>' +
-        '<td class="num">' + fmtPct(p.bb_pct_season) + '</td>' +
+        '<td class="num szn-col">' + fmtPct(p.k_pct_season) + '</td>' +
+        '<td class="num szn-col">' + fmtPct(p.bb_pct_season) + '</td>' +
         '<td class="num edge-cell" style="color:' + pitchColor(p.woba_r, 0.315, 0.06) + '">' + fmt3(p.woba_r) + '</td>' +
         '<td class="num edge-cell" style="color:' + pitchColor(p.iso_r, 0.150, 0.06) + '">' + fmt3(p.iso_r) + '</td>' +
         '<td class="num edge-cell" style="color:' + pitchColor(p.woba_l, 0.315, 0.06) + '">' + fmt3(p.woba_l) + '</td>' +
@@ -446,6 +447,16 @@
         '<td class="arsenal-cell">' + (p.arsenal_r || "") + '</td>' +
         '<td class="arsenal-cell">' + (p.arsenal_l || "") + '</td>';
       pitchersTableBody.appendChild(tr);
+    });
+    applyWindowColumns();
+  }
+
+  // The season-long K%/BB% columns only make sense alongside the season
+  // batter window; hide them when the 30-day window is selected.
+  function applyWindowColumns() {
+    const hide = (windowInput.value === "last30");
+    document.querySelectorAll("#pitchers-table .szn-col").forEach((el) => {
+      el.style.display = hide ? "none" : "";
     });
   }
 
