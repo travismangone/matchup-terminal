@@ -160,6 +160,8 @@
               <th data-key="fip" class="num">FIP</th>
               <th data-key="xfip" class="num">xFIP</th>
               <th data-key="xfip_minus_fip" class="num">xFIP-FIP</th>
+              <th data-key="babip" class="num">BABIP</th>
+              <th data-key="lob_pct" class="num">LOB%</th>
               <th data-key="k_pct_30d" class="num">K% 30d</th>
               <th data-key="bb_pct_30d" class="num">BB% 30d</th>
               <th data-key="k_pct_season" class="num szn-col">K% Szn</th>
@@ -350,6 +352,8 @@
         fip: (p.fip != null ? p.fip : null),
         xfip: (p.xfip != null ? p.xfip : null),
         xfip_minus_fip: ((p.fip != null && p.xfip != null) ? (p.xfip - p.fip) : null),
+        babip: (p.babip != null ? p.babip : null),
+        lob_pct: (p.lob_pct != null ? p.lob_pct : null),
         k_pct_30d: (p.k_pct_30d != null ? p.k_pct_30d : null),
         bb_pct_30d: (p.bb_pct_30d != null ? p.bb_pct_30d : null),
         k_pct_season: (p.k_pct_season != null ? p.k_pct_season : null),
@@ -436,6 +440,8 @@
         '<td class="num">' + fmt2(p.fip) + '</td>' +
         '<td class="num">' + fmt2(p.xfip) + '</td>' +
         '<td class="num">' + fmt2Signed(p.xfip_minus_fip) + '</td>' +
+        '<td class="num">' + fmt3(p.babip) + '</td>' +
+        '<td class="num">' + fmtPct(p.lob_pct) + '</td>' +
         '<td class="num">' + fmtPct(p.k_pct_30d) + '</td>' +
         '<td class="num">' + fmtPct(p.bb_pct_30d) + '</td>' +
         '<td class="num szn-col">' + fmtPct(p.k_pct_season) + '</td>' +
