@@ -63,6 +63,11 @@
   .status-pill.running { color: var(--accent); border-color: var(--accent); }
   .status-pill.done { color: var(--good); border-color: var(--good); }
   .status-pill.error { color: var(--bad); border-color: var(--bad); }
+  .proj-badge {
+    display: inline-block; margin-left: 6px; padding: 1px 5px; border-radius: 4px;
+    font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; vertical-align: middle;
+    background: var(--panel-2); color: var(--accent); border: 1px solid var(--accent-dim);
+  }
 
   .panel {
     background: var(--panel); border: 1px solid var(--border);
@@ -503,7 +508,7 @@
       const tr = document.createElement("tr");
       tr.innerHTML =
         '<td class="num">' + b.order + '</td>' +
-        '<td>' + escapeHtml(b.name) + '</td>' +
+        '<td>' + escapeHtml(b.name) + (b.lineup_status === "projected" ? ' <span class="proj-badge" title="Projected lineup \u2014 not yet official">proj</span>' : '') + '</td>' +
         '<td>' + escapeHtml(b.team || "") + '</td>' +
         '<td>' + escapeHtml(b.bat_side) + '</td>' +
         '<td>' + escapeHtml(b.vs_pitcher || "") + '</td>' +
