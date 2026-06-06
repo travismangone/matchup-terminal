@@ -140,6 +140,7 @@
     </select>
     <button id="run-btn">Run Analysis</button>
     <button id="refresh-btn" class="secondary">Refresh</button>
+    <button id="csv-btn" class="secondary">Export CSV</button>
     <span id="status-pill" class="status-pill">idle</span>
     <span id="elapsed" class="sub" style="color: var(--muted);"></span>
   </div>
@@ -246,6 +247,7 @@
   const windowInput = $("#window-input");
   const runBtn = $("#run-btn");
   const refreshBtn = $("#refresh-btn");
+  const csvBtn = $("#csv-btn");
   const statusPill = $("#status-pill");
   const elapsedEl = $("#elapsed");
   const logEl = $("#log");
@@ -304,6 +306,43 @@
   });
 
   refreshBtn.addEventListener("click", refreshOnce);
+
+  // ---- CSV export of the currently displayed data ----
+  function csvCell(v) {
+    if (v === null || v === undefined) return "";
+    const s = String(v);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }
+  function rowsToCsv(headers, keys, rows) {
+    const lines = [headers.map(csvCell).join(",")];
+    rows.forEach(function (r) {
+      lines.push(keys.map(function (k) { return csvCell(r[k]); }).join(","));
+    });
+    return lines.join("\n");
+  }
+  function exportCsv() {
+    if (!pitchersData.length && !battersData.length) {
+      alert("No data to export yet. Run an analysis first.");
+      return;
+    }
+    const pHead = ["Pitcher","Throws","Team","Opponent","Pitches30d","FIP","xFIP","xFIP-FIP","BABIP","LOB%","K%30d","BB%30d","K%szn","BB%szn","wOBA_vsR","ISO_vsR","wOBA_vsL","ISO_vsL","Arsenal_vsR","Arsenal_vsL"];
+    const pKeys = ["name","throws","team","opponent","n_pitches","fip","xfip","xfip_minus_fip","babip","lob_pct","k_pct_30d","bb_pct_30d","k_pct_season","bb_pct_season","woba_r","iso_r","woba_l","iso_l","arsenal_r","arsenal_l"];
+    const bHead = ["Order","Batter","Team","Side","vs_Pitcher","P_Throws","Lineup","Proj_wOBA","wOBA_Edge","Proj_ISO","ISO_Edge","PA"];
+    const bKeys = ["order","name","team","bat_side","vs_pitcher","pitcher_throws","lineup_status","proj_woba","woba_edge","proj_iso","iso_edge","pa_sample"];
+    let csv = "STARTING PITCHERS\n" + rowsToCsv(pHead, pKeys, pitchersData) + "\n\n";
+    csv += "BATTERS\n" + rowsToCsv(bHead, bKeys, battersData) + "\n";
+    const dateStr = (dateInput.value || "slate");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "matchup_terminal_" + dateStr + ".csv";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  }
+  csvBtn.addEventListener("click", exportCsv);
   windowInput.addEventListener("change", applyWindowColumns);
 
   function startPolling() {
