@@ -392,14 +392,21 @@ def get_pitcher_profile(
         bip_denom = ab - k - hr + sf
         if bip_denom > 0:
             babip = round(float((hits - hr) / bip_denom), 3)
-        # LOB%: share of baserunners stranded. Runs allowed are not in the
-        # pitch-event data, so estimate runs from the FIP-style components
-        # (same inputs used for xFIP) to keep this a regression signal.
+        # LOB%: share of baserunners stranded. Runs allowed come straight from
+        # the Statcast score columns: on each plate-appearance-ending row,
+        # post_bat_score - bat_score is the runs that scored on that play
+        # (the batting team is the opponent, so this is runs the pitcher gave up).
+        runs_allowed = None
+        if {"bat_score", "post_bat_score"}.issubset(df.columns):
+            pa_rows = df[df["events"].notna() & (df["events"] != "")]
+            bs = pd.to_numeric(pa_rows["bat_score"], errors="coerce")
+            ps = pd.to_numeric(pa_rows["post_bat_score"], errors="coerce")
+            delta = (ps - bs).clip(lower=0)
+            runs_allowed = int(delta.fillna(0).sum())
         reached = hits + bb + ibb + hbp
-        est_runs = 0.49 * (singles + bb + ibb + hbp) + 0.78 * doubles + 1.07 * triples + 1.40 * hr
         lob_denom = reached - 1.4 * hr
-        if lob_denom > 0:
-            lob_pct = round(float(100.0 * (reached - est_runs) / lob_denom), 1)
+        if runs_allowed is not None and lob_denom > 0:
+            lob_pct = round(float(100.0 * (reached - runs_allowed) / lob_denom), 1)
             lob_pct = max(0.0, min(100.0, lob_pct))
 
     # ---- Strikeout % and Walk % (30-day window uses the df above) ----
