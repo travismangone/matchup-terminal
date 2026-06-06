@@ -127,8 +127,22 @@ def get_slate(date_str: str, log_fn: Callable[[str], None] = print) -> List[Dict
             game_pk, away_pitcher_name, home_pitcher_name, log_fn
         )
 
+        away_team_id = g.get("away_id")
+        home_team_id = g.get("home_id")
+
         away_lineup = _get_lineup(game_pk, side="away", log_fn=log_fn)
         home_lineup = _get_lineup(game_pk, side="home", log_fn=log_fn)
+
+        # Official lineups are usually not posted until a few hours before
+        # first pitch. When a side has no posted lineup yet, fall back to that
+        # team's most recent actual lineup so the slate is usable earlier. Each
+        # lineup is tagged so the UI can show "official" vs "projected".
+        away_status = "official" if away_lineup else "projected"
+        if not away_lineup:
+            away_lineup = _project_lineup(away_team_id, date_str, log_fn)
+        home_status = "official" if home_lineup else "projected"
+        if not home_lineup:
+            home_lineup = _project_lineup(home_team_id, date_str, log_fn)
 
         slate.append({
             "game_pk": game_pk,
@@ -140,8 +154,44 @@ def get_slate(date_str: str, log_fn: Callable[[str], None] = print) -> List[Dict
             "home_pitcher_name": home_pitcher_name,
             "away_lineup": away_lineup,
             "home_lineup": home_lineup,
+            "away_lineup_status": away_status,
+            "home_lineup_status": home_status,
         })
     return slate
+
+
+def _project_lineup(team_id, date_str, log_fn):
+    """Best-effort projected lineup: the team's most recent actual batting
+    order from a completed game before date_str. Used when the official lineup
+    for the target date has not been posted yet. Returns [] if none found."""
+    if not team_id:
+        return []
+    try:
+        target = _dt.date.fromisoformat(date_str)
+    except (TypeError, ValueError):
+        return []
+    start = (target - _dt.timedelta(days=14)).isoformat()
+    end = (target - _dt.timedelta(days=1)).isoformat()
+    try:
+        games = statsapi.schedule(start_date=start, end_date=end, team=team_id)
+    except Exception as e:
+        _safe_log(log_fn, f"  projected-lineup schedule fetch failed for team {team_id}: {e}")
+        return []
+    games = sorted(games, key=lambda x: x.get("game_date", ""), reverse=True)
+    for gm in games:
+        status = (gm.get("status") or "").lower()
+        if "final" not in status and "completed" not in status:
+            continue
+        gpk = gm.get("game_id")
+        if not gpk:
+            continue
+        side = "home" if gm.get("home_id") == team_id else "away"
+        lineup = _get_lineup(gpk, side=side, log_fn=log_fn)
+        if lineup:
+            _safe_log(log_fn, f"  projected lineup for team {team_id} from game {gpk} ({gm.get('game_date')})")
+            return lineup
+    _safe_log(log_fn, f"  no projected lineup found for team {team_id}")
+    return []
 
 
 def _resolve_pitcher_ids(game_pk: Optional[int], away_name: str, home_name: str,
@@ -651,6 +701,7 @@ def analyze_slate(date_str: str, log_fn: Callable[[str], None] = print, batter_w
             pid = g.get(f"{side}_pitcher_id")
             pname = g.get(f"{side}_pitcher_name")
             lineup = g.get(f"{opp_side}_lineup", [])
+            lineup_status = g.get(f"{opp_side}_lineup_status", "official")
             opp_team = g.get(f"{opp_side}_team")
             own_team = g.get(f"{side}_team")
 
@@ -658,11 +709,11 @@ def analyze_slate(date_str: str, log_fn: Callable[[str], None] = print, batter_w
                 skipped.append({"game": f"{g['away_team']} @ {g['home_team']}",
                                   "reason": f"no probable pitcher for {own_team}"})
                 continue
+            # Note: a missing lineup no longer skips the pitcher. The starter is
+            # always processed below; the batter loop is guarded so we simply
+            # show no hitters when neither an official nor a projected lineup exists.
             if not lineup:
-                _safe_log(log_fn, f"  SKIP {opp_team}: no posted lineup (len={len(lineup)})")
-                skipped.append({"game": f"{g['away_team']} @ {g['home_team']}",
-                                  "reason": f"no posted lineup for {opp_team}"})
-                continue
+                _safe_log(log_fn, f"  {opp_team}: no official or projected lineup; showing pitcher only")
 
             if pid not in pitcher_cache:
                 prof = get_pitcher_profile(pid, date_str, log_fn=log_fn)
@@ -702,6 +753,7 @@ def analyze_slate(date_str: str, log_fn: Callable[[str], None] = print, batter_w
                     "name": b["name"],
                     "team": opp_team,
                     "order": b["order"],
+                    "lineup_status": lineup_status,
                     "bat_side": b["bat_side"],
                     "effective_side": eff_side,
                     "vs_pitcher": pname,
