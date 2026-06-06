@@ -686,6 +686,8 @@ def analyze_slate(date_str: str, log_fn: Callable[[str], None] = print, batter_w
                     "bb_pct_30d": prof.get("bb_pct_30d"),
                     "k_pct_season": prof.get("k_pct_season"),
                     "bb_pct_season": prof.get("bb_pct_season"),
+                    "babip": prof.get("babip"),
+                    "lob_pct": prof.get("lob_pct"),
                 })
 
             prof = pitcher_cache[pid]
