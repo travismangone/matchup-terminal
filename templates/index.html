@@ -55,6 +55,7 @@
   }
   button:disabled { background: var(--accent-dim); cursor: not-allowed; opacity: 0.7; }
   button.secondary { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); }
+    .grade-badge { display: inline-block; min-width: 30px; text-align: center; padding: 1px 6px; border-radius: 4px; font-weight: 700; font-size: 12px; font-variant-numeric: tabular-nums; }
   .status-pill {
     display: inline-block; padding: 3px 9px; border-radius: 10px;
     font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
@@ -158,6 +159,7 @@
       <table class="batters" id="pitchers-table">
         <thead>
           <tr>
+            <th data-key="grade_score" class="num">Grade</th>
             <th data-key="name">Pitcher</th>
             <th data-key="throws">T</th>
             <th data-key="team">Team</th>
@@ -194,6 +196,7 @@
         <thead>
           <tr>
             <th data-key="order" class="num">#</th>
+            <th data-key="grade_score" class="num">Grade</th>
             <th data-key="name">Batter</th>
             <th data-key="team">Team</th>
             <th data-key="bat_side">Side</th>
@@ -222,6 +225,7 @@
             <th data-key="team">Team</th>
             <th data-key="vs_pitcher">vs Pitcher</th>
             <th data-key="pitcher_throws">P</th>
+            <th data-key="grade_score" class="num">Grade</th>
             <th data-key="hitters" class="num">Hitters</th>
             <th data-key="avg_proj_woba" class="num">Avg Proj wOBA</th>
             <th data-key="avg_woba_edge" class="num">Avg wOBA Edge</th>
@@ -268,13 +272,13 @@
   })();
 
   let battersData = [];
-  let sortKey = "woba_edge";
+  let sortKey = "grade_score";
   let sortDir = -1;
   let pitchersData = [];
-  let pSortKey = "name";
-  let pSortDir = 1;
+  let pSortKey = "grade_score";
+  let pSortDir = -1;
   let teamsData = [];
-  let tSortKey = "avg_woba_edge";
+  let tSortKey = "grade_score";
   let tSortDir = -1;
   let pollTimer = null;
 
@@ -328,10 +332,10 @@
       alert("No data to export yet. Run an analysis first.");
       return;
     }
-    const pHead = ["Pitcher","Throws","Team","Opponent","Pitches30d","FIP","xFIP","xFIP-FIP","BABIP","LOB%","K%30d","BB%30d","K%szn","BB%szn","wOBA_vsR","ISO_vsR","wOBA_vsL","ISO_vsL","Arsenal_vsR","Arsenal_vsL"];
-    const pKeys = ["name","throws","team","opponent","n_pitches","fip","xfip","xfip_minus_fip","babip","lob_pct","k_pct_30d","bb_pct_30d","k_pct_season","bb_pct_season","woba_r","iso_r","woba_l","iso_l","arsenal_r","arsenal_l"];
-    const bHead = ["Order","Batter","Team","Side","vs_Pitcher","P_Throws","Lineup","Proj_wOBA","wOBA_Edge","Proj_ISO","ISO_Edge","PA"];
-    const bKeys = ["order","name","team","bat_side","vs_pitcher","pitcher_throws","lineup_status","proj_woba","woba_edge","proj_iso","iso_edge","pa_sample"];
+    const pHead = ["Grade","Pitcher","Throws","Team","Opponent","Pitches30d","FIP","xFIP","xFIP-FIP","BABIP","LOB%","K%30d","BB%30d","K%szn","BB%szn","wOBA_vsR","ISO_vsR","wOBA_vsL","ISO_vsL","Arsenal_vsR","Arsenal_vsL"];
+    const pKeys = ["grade","name","throws","team","opponent","n_pitches","fip","xfip","xfip_minus_fip","babip","lob_pct","k_pct_30d","bb_pct_30d","k_pct_season","bb_pct_season","woba_r","iso_r","woba_l","iso_l","arsenal_r","arsenal_l"];
+    const bHead = ["Grade","Order","Batter","Team","Side","vs_Pitcher","P_Throws","Lineup","Proj_wOBA","wOBA_Edge","Proj_ISO","ISO_Edge","PA"];
+    const bKeys = ["grade","order","name","team","bat_side","vs_pitcher","pitcher_throws","lineup_status","proj_woba","woba_edge","proj_iso","iso_edge","pa_sample"];
     let csv = "STARTING PITCHERS\n" + rowsToCsv(pHead, pKeys, pitchersData) + "\n\n";
     csv += "BATTERS\n" + rowsToCsv(bHead, bKeys, battersData) + "\n";
     const dateStr = (dateInput.value || "slate");
@@ -413,11 +417,25 @@
         arsenal_l: formatArsenal(p.arsenal ? p.arsenal.L : null),
       };
     });
+    gradeRows(pitchersData, [
+      ["k_pct_30d", 1.4, 1],
+      ["fip", 1.3, -1],
+      ["xfip", 1.1, -1],
+      ["bb_pct_30d", 0.8, -1],
+      ["babip", 0.5, -1],
+      ["lob_pct", 0.4, 1],
+    ]);
     renderPitchers();
     pitcherPanel.style.display = pitchersData.length ? "" : "none";
 
     // Batters
     battersData = res.batters || [];
+    gradeRows(battersData, [
+      ["woba_edge", 1.5, 1],
+      ["proj_woba", 1.2, 1],
+      ["iso_edge", 0.7, 1],
+      ["proj_iso", 0.4, 1],
+    ]);
     renderBatters();
     batterPanel.style.display = battersData.length ? "" : "none";
 
@@ -451,8 +469,62 @@
       avg_proj_iso: tm.hitters ? tm._iso / tm.hitters : null,
       avg_iso_edge: tm.hitters ? tm._isoEdge / tm.hitters : null,
     }));
+    gradeRows(teamsData, [
+      ["avg_woba_edge", 1.5, 1],
+      ["avg_proj_woba", 1.2, 1],
+      ["avg_iso_edge", 0.7, 1],
+      ["avg_proj_iso", 0.4, 1],
+    ]);
     renderTeams();
     teamPanel.style.display = teamsData.length ? "" : "none";
+  }
+
+  // ---- Grading engine -------------------------------------------------
+  // Each entity gets a composite z-score across the current slate, mapped
+  // to a 0-100 score and a letter grade. Specs list [key, weight, dir]
+  // where dir = +1 means higher is better, -1 means lower is better.
+  function _stat(rows, key) {
+    const vals = rows.map(function (r) { return r[key]; })
+      .filter(function (v) { return v !== null && v !== undefined && !isNaN(v); });
+    if (!vals.length) return { mean: 0, std: 0 };
+    const mean = vals.reduce(function (a, b) { return a + b; }, 0) / vals.length;
+    const variance = vals.reduce(function (a, b) { return a + (b - mean) * (b - mean); }, 0) / vals.length;
+    return { mean: mean, std: Math.sqrt(variance) };
+  }
+  function _letter(score) {
+    if (score >= 90) return "A+";
+    if (score >= 80) return "A";
+    if (score >= 72) return "B+";
+    if (score >= 64) return "B";
+    if (score >= 56) return "C+";
+    if (score >= 48) return "C";
+    if (score >= 38) return "D";
+    return "F";
+  }
+  function gradeRows(rows, specs) {
+    const stats = {};
+    specs.forEach(function (s) { stats[s[0]] = _stat(rows, s[0]); });
+    const totalW = specs.reduce(function (a, s) { return a + s[1]; }, 0) || 1;
+    rows.forEach(function (r) {
+      let z = 0, used = 0;
+      specs.forEach(function (s) {
+        const key = s[0], w = s[1], dir = s[2];
+        const v = r[key];
+        const st = stats[key];
+        if (v === null || v === undefined || isNaN(v) || st.std === 0) return;
+        z += w * dir * ((v - st.mean) / st.std);
+        used += w;
+      });
+      const composite = used ? z / totalW : 0;
+      let score = 55 + composite * 18;
+      score = Math.max(0, Math.min(100, score));
+      r.grade_score = Math.round(score);
+      r.grade = _letter(score);
+    });
+  }
+  function gradeColor(score) {
+    if (score === null || score === undefined || isNaN(score)) return "var(--muted)";
+    return edgeColor((score - 55) / 100, 0.35);
   }
 
   function formatArsenal(obj) {
@@ -479,6 +551,7 @@
     sorted.forEach((p) => {
       const tr = document.createElement("tr");
       tr.innerHTML =
+        '<td class="num"><span class="grade-badge" style="background:' + gradeColor(p.grade_score) + '">' + (p.grade || '-') + '</span></td>' +
         '<td>' + escapeHtml(p.name) + '</td>' +
         '<td>' + escapeHtml(p.throws) + '</td>' +
         '<td>' + escapeHtml(p.team) + '</td>' +
@@ -530,6 +603,7 @@
         '<td>' + escapeHtml(t.team) + '</td>' +
         '<td>' + escapeHtml(t.vs_pitcher || "") + '</td>' +
         '<td>' + escapeHtml(t.pitcher_throws || "") + '</td>' +
+        '<td class="num"><span class="grade-badge" style="background:' + gradeColor(t.grade_score) + '">' + (t.grade || '-') + '</span></td>' +
         '<td class="num">' + (t.hitters || 0) + '</td>' +
         '<td class="num">' + fmt3(t.avg_proj_woba) + '</td>' +
         '<td class="num edge-cell" style="color:' + edgeColor(t.avg_woba_edge, 0.05) + '">' + fmtSigned(t.avg_woba_edge) + '</td>' +
@@ -549,6 +623,7 @@
     sorted.forEach((b) => {
       const tr = document.createElement("tr");
       tr.innerHTML =
+        '<td class="num"><span class="grade-badge" style="background:' + gradeColor(b.grade_score) + '">' + (b.grade || '-') + '</span></td>' +
         '<td class="num">' + b.order + '</td>' +
         '<td>' + escapeHtml(b.name) + (b.lineup_status === "projected" ? ' <span class="proj-badge" title="Projected lineup \u2014 not yet official">proj</span>' : '') + '</td>' +
         '<td>' + escapeHtml(b.team || "") + '</td>' +
