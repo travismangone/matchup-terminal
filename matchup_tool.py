@@ -79,6 +79,13 @@ try:
 except Exception:  # pragma: no cover
     pass
 
+# In-process memo caches (cleared each cold start / process). These avoid
+# redundant network round-trips WITHIN a single slate run and across runs in
+# the same process, on top of pybaseball's on-disk cache.
+_BATTER_DF_CACHE: Dict[tuple, object] = {}
+_PROJECT_LINEUP_CACHE: Dict[tuple, List[Dict]] = {}
+_THROWS_CACHE: Dict[int, str] = {}
+
 
 # -----------------------------------------------------------------------------
 # Helpers
@@ -166,11 +173,14 @@ def _project_lineup(team_id, date_str, log_fn):
     for the target date has not been posted yet. Returns [] if none found."""
     if not team_id:
         return []
+    _ck = (team_id, date_str)
+    if _ck in _PROJECT_LINEUP_CACHE:
+        return _PROJECT_LINEUP_CACHE[_ck]
     try:
         target = _dt.date.fromisoformat(date_str)
     except (TypeError, ValueError):
         return []
-    start = (target - _dt.timedelta(days=14)).isoformat()
+    start = (target - _dt.timedelta(days=10)).isoformat()
     end = (target - _dt.timedelta(days=1)).isoformat()
     try:
         games = statsapi.schedule(start_date=start, end_date=end, team=team_id)
@@ -189,8 +199,10 @@ def _project_lineup(team_id, date_str, log_fn):
         lineup = _get_lineup(gpk, side=side, log_fn=log_fn)
         if lineup:
             _safe_log(log_fn, f"  projected lineup for team {team_id} from game {gpk} ({gm.get('game_date')})")
+            _PROJECT_LINEUP_CACHE[_ck] = lineup
             return lineup
     _safe_log(log_fn, f"  no projected lineup found for team {team_id}")
+    _PROJECT_LINEUP_CACHE[_ck] = []
     return []
 
 
@@ -539,13 +551,18 @@ def get_batter_profile(
         start = end - _dt.timedelta(days=30)
     else:
         start = _dt.date(end.year - (BATTER_LOOKBACK_SEASONS - 1), 1, 1)
-    _safe_log(log_fn, f"    Pulling batter {batter_id} Statcast {start} -> {end} ...")
-
-    try:
-        df = statcast_batter(start.isoformat(), end.isoformat(), batter_id)
-    except Exception as e:
-        _safe_log(log_fn, f"      batter fetch failed: {e}")
-        return _empty_batter_profile()
+    _bk = (batter_id, start.isoformat(), end.isoformat())
+    df = _BATTER_DF_CACHE.get(_bk)
+    if df is None:
+        _safe_log(log_fn, f"    Pulling batter {batter_id} Statcast {start} -> {end} ...")
+        try:
+            df = statcast_batter(start.isoformat(), end.isoformat(), batter_id)
+        except Exception as e:
+            _safe_log(log_fn, f"      batter fetch failed: {e}")
+            return _empty_batter_profile()
+        _BATTER_DF_CACHE[_bk] = df
+    else:
+        _safe_log(log_fn, f"    Batter {batter_id} Statcast (cached {start} -> {end})")
 
     if df is None or df.empty:
         return _empty_batter_profile()
@@ -790,6 +807,8 @@ def _infer_pitcher_throws(pitcher_id: int, end_date: str) -> str:
     name string, not numeric id, so passing an int silently returned no
     matches and we always fell back to "R" (every pitcher rendered as RHP).
     """
+    if pitcher_id in _THROWS_CACHE:
+        return _THROWS_CACHE[pitcher_id]
     # Primary: hit /api/v1/people/{id} for the canonical record.
     try:
         resp = statsapi.get("person", {"personId": int(pitcher_id)})
@@ -797,6 +816,7 @@ def _infer_pitcher_throws(pitcher_id: int, end_date: str) -> str:
         if people:
             code = (people[0].get("pitchHand") or {}).get("code")
             if code in ("L", "R"):
+                _THROWS_CACHE[pitcher_id] = code
                 return code
     except Exception:
         pass
@@ -809,7 +829,9 @@ def _infer_pitcher_throws(pitcher_id: int, end_date: str) -> str:
             vals = df["p_throws"].dropna().astype(str).str.upper().str[0]
             vals = vals[vals.isin(["L", "R"])]
             if not vals.empty:
-                return vals.iloc[-1]
+                _r = vals.iloc[-1]
+                _THROWS_CACHE[pitcher_id] = _r
+                return _r
     except Exception:
         pass
     return "R"
