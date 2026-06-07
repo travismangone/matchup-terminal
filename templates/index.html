@@ -170,6 +170,7 @@
               <th data-key="xfip_minus_fip" class="num">xFIP-FIP</th>
               <th data-key="babip" class="num">BABIP</th>
               <th data-key="lob_pct" class="num">LOB%</th>
+              <th data-key="reg_score" class="num">Regress</th>
               <th data-key="k_pct_30d" class="num">K% 30d</th>
               <th data-key="bb_pct_30d" class="num">BB% 30d</th>
               <th data-key="k_pct_season" class="num szn-col">K% Szn</th>
@@ -332,8 +333,8 @@
       alert("No data to export yet. Run an analysis first.");
       return;
     }
-    const pHead = ["Grade","Pitcher","Throws","Team","Opponent","Pitches30d","FIP","xFIP","xFIP-FIP","BABIP","LOB%","K%30d","BB%30d","K%szn","BB%szn","wOBA_vsR","ISO_vsR","wOBA_vsL","ISO_vsL","Arsenal_vsR","Arsenal_vsL"];
-    const pKeys = ["grade","name","throws","team","opponent","n_pitches","fip","xfip","xfip_minus_fip","babip","lob_pct","k_pct_30d","bb_pct_30d","k_pct_season","bb_pct_season","woba_r","iso_r","woba_l","iso_l","arsenal_r","arsenal_l"];
+    const pHead = ["Grade","Pitcher","Throws","Team","Opponent","Pitches30d","FIP","xFIP","xFIP-FIP","BABIP","LOB%","Regress","K%30d","BB%30d","K%szn","BB%szn","wOBA_vsR","ISO_vsR","wOBA_vsL","ISO_vsL","Arsenal_vsR","Arsenal_vsL"];
+    const pKeys = ["grade","name","throws","team","opponent","n_pitches","fip","xfip","xfip_minus_fip","babip","lob_pct","reg_label","k_pct_30d","bb_pct_30d","k_pct_season","bb_pct_season","woba_r","iso_r","woba_l","iso_l","arsenal_r","arsenal_l"];
     const bHead = ["Grade","Order","Batter","Team","Side","vs_Pitcher","P_Throws","Lineup","Proj_wOBA","wOBA_Edge","Proj_ISO","ISO_Edge","PA"];
     const bKeys = ["grade","order","name","team","bat_side","vs_pitcher","pitcher_throws","lineup_status","proj_woba","woba_edge","proj_iso","iso_edge","pa_sample"];
     let csv = "STARTING PITCHERS\n" + rowsToCsv(pHead, pKeys, pitchersData) + "\n\n";
@@ -405,6 +406,8 @@
         xfip_minus_fip: ((p.fip != null && p.xfip != null) ? (p.xfip - p.fip) : null),
         babip: (p.babip != null ? p.babip : null),
         lob_pct: (p.lob_pct != null ? p.lob_pct : null),
+        reg_score: (p.reg_score != null ? p.reg_score : null),
+        reg_label: (p.reg_label != null ? p.reg_label : null),
         k_pct_30d: (p.k_pct_30d != null ? p.k_pct_30d : null),
         bb_pct_30d: (p.bb_pct_30d != null ? p.bb_pct_30d : null),
         k_pct_season: (p.k_pct_season != null ? p.k_pct_season : null),
@@ -422,8 +425,6 @@
       ["fip", 1.3, -1],
       ["xfip", 1.1, -1],
       ["bb_pct_30d", 0.8, -1],
-      ["babip", 0.5, -1],
-      ["lob_pct", 0.4, 1],
     ]);
     renderPitchers();
     pitcherPanel.style.display = pitchersData.length ? "" : "none";
@@ -560,8 +561,9 @@
         '<td class="num">' + fmt2(p.fip) + '</td>' +
         '<td class="num">' + fmt2(p.xfip) + '</td>' +
         '<td class="num">' + fmt2Signed(p.xfip_minus_fip) + '</td>' +
-        '<td class="num edge-cell" style="color:' + pitchColor(p.babip, 0.300, 0.04) + '">' + fmt3(p.babip) + '</td>' +
-        '<td class="num edge-cell" style="color:' + pitchColorInv(p.lob_pct, 72, 10) + '">' + fmtPct(p.lob_pct) + '</td>' +
+        '<td class="num edge-cell" style="color:' + pitchColor(p.babip, 0.300, 0.06) + '">' + fmt3(p.babip) + '</td>' +
+        '<td class="num edge-cell" style="color:' + pitchColorInv(p.lob_pct, 72, 14) + '">' + fmtPct(p.lob_pct) + '</td>' +
+        '<td class="num" style="color:' + regColor(p.reg_score) + '" title="' + (p.reg_label || '') + ' regression candidate">' + regText(p.reg_score, p.reg_label) + '</td>' +
         '<td class="num">' + fmtPct(p.k_pct_30d) + '</td>' +
         '<td class="num">' + fmtPct(p.bb_pct_30d) + '</td>' +
         '<td class="num szn-col">' + fmtPct(p.k_pct_season) + '</td>' +
@@ -691,6 +693,16 @@
   function pitchColorInv(v, mid, scale) {
     if (v == null || isNaN(v)) return "var(--muted)";
     return edgeColor(v - mid, scale);
+  }
+  // Regression signal coloring/text. reg_score > 0 => positive (improve, green); < 0 negative (worsen, red).
+  function regColor(s) {
+    if (s == null || isNaN(s)) return "var(--muted)";
+    return edgeColor(s, 1.5);
+  }
+  function regText(s, label) {
+    if (s == null || isNaN(s)) return "-";
+    var arrow = s >= 0.6 ? "\u25B2" : (s <= -0.6 ? "\u25BC" : "\u2022");
+    return arrow + " " + (s > 0 ? "+" : "") + s.toFixed(1);
   }
   function fmtPct(v) { return (v == null || isNaN(v)) ? "-" : v.toFixed(1) + "%"; }
   function fmt2Signed(v) {
