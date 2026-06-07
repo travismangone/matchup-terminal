@@ -85,6 +85,7 @@ except Exception:  # pragma: no cover
 _BATTER_DF_CACHE: Dict[tuple, object] = {}
 _PROJECT_LINEUP_CACHE: Dict[tuple, List[Dict]] = {}
 _THROWS_CACHE: Dict[int, str] = {}
+_BAT_SIDE_CACHE: Dict[int, str] = {}
 
 
 # -----------------------------------------------------------------------------
@@ -279,7 +280,11 @@ def _get_lineup(game_pk: int, side: str, log_fn: Callable[[str], None]) -> List[
         key = pid_str if pid_str.startswith("ID") else f"ID{pid_str}"
         info = players_block.get(key, {}) or {}
         person = info.get("person", {}) or {}
-        bat_side = (info.get("batSide", {}) or {}).get("code") or "R"
+        try:
+            _pid_for_side = int(person.get("id")) if person.get("id") else int(pid_str.replace("ID", ""))
+        except (TypeError, ValueError):
+            _pid_for_side = None
+        bat_side = _get_bat_side(_pid_for_side) if _pid_for_side else "R"
         try:
             player_id = int(person.get("id")) if person.get("id") else int(pid_str.replace("ID", ""))
         except (TypeError, ValueError):
@@ -796,6 +801,33 @@ def analyze_slate(date_str: str, log_fn: Callable[[str], None] = print, batter_w
         "skipped": skipped,
         "elapsed_sec": elapsed,
     }
+
+
+def _get_bat_side(player_id: int) -> str:
+    """Look up a batter's handedness ("L", "R", or "S") from the MLB Stats
+    API people endpoint, cached per player.
+
+    The boxscore player record does NOT carry a batSide field, so the old
+    code (info.get("batSide")) always fell through to "R" and every hitter
+    rendered as right-handed -- which silently selected the wrong platoon
+    split for all lefties and switch hitters. The canonical record lives at
+    /api/v1/people/{id} as "batSide.code".
+    """
+    if not player_id:
+        return "R"
+    if player_id in _BAT_SIDE_CACHE:
+        return _BAT_SIDE_CACHE[player_id]
+    try:
+        resp = statsapi.get("person", {"personId": int(player_id)})
+        people = (resp or {}).get("people") or []
+        if people:
+            code = (people[0].get("batSide") or {}).get("code")
+            if code in ("L", "R", "S"):
+                _BAT_SIDE_CACHE[player_id] = code
+                return code
+    except Exception:
+        pass
+    return "R"
 
 
 def _infer_pitcher_throws(pitcher_id: int, end_date: str) -> str:
