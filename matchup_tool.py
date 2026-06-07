@@ -69,7 +69,7 @@ BATTER_LOOKBACK_SEASONS = 2
 # LEAGUE_HR_PER_FB is the league home-run-per-fly-ball rate used by xFIP to
 # replace a pitcher's actual HR with an expected HR total (regression signal).
 FIP_CONSTANT = 3.10
-LEAGUE_HR_PER_FB = 0.135
+LEAGUE_HR_PER_FB = 0.12
 
 logger = logging.getLogger(__name__)
 
@@ -434,11 +434,11 @@ def get_pitcher_profile(
         ip = outs / 3.0
         fb = 0
         if "bb_type" in df.columns:
-            fb = int(df["bb_type"].isin(["fly_ball", "popup"]).sum())
+            fb = int(df["bb_type"].isin(["fly_ball"]).sum())
         if ip > 0:
-            fip = float((13 * hr + 3 * (bb + ibb + hbp) - 2 * k) / ip + FIP_CONSTANT)
+            fip = float((13 * hr + 3 * (bb + hbp) - 2 * k) / ip + FIP_CONSTANT)
             exp_hr = fb * LEAGUE_HR_PER_FB
-            xfip = float((13 * exp_hr + 3 * (bb + ibb + hbp) - 2 * k) / ip + FIP_CONSTANT)
+            xfip = float((13 * exp_hr + 3 * (bb + hbp) - 2 * k) / ip + FIP_CONSTANT)
             fip = round(fip, 2)
             xfip = round(xfip, 2)
 
@@ -476,6 +476,28 @@ def get_pitcher_profile(
             lob_pct = round(float(100.0 * (reached - runs_allowed) / lob_denom), 1)
             lob_pct = max(0.0, min(100.0, lob_pct))
 
+    # ---- Regression signal (luck-based, NOT a skill grade) ----
+    # Compares BABIP vs a league-neutral .300 and LOB% vs ~72%. A pitcher
+    # running a LOW BABIP and/or HIGH LOB% has been lucky and is a NEGATIVE
+    # regression risk (results likely to worsen); a HIGH BABIP and/or LOW
+    # LOB% has been unlucky and is a POSITIVE regression candidate (results
+    # likely to improve). reg_score > 0 => expect improvement.
+    reg_score = None
+    reg_label = None
+    if babip is not None or lob_pct is not None:
+        _score = 0.0
+        if babip is not None:
+            _score += (babip - 0.300) / 0.030
+        if lob_pct is not None:
+            _score += (72.0 - lob_pct) / 8.0
+        reg_score = round(float(_score), 2)
+        if reg_score >= 0.6:
+            reg_label = "Positive"
+        elif reg_score <= -0.6:
+            reg_label = "Negative"
+        else:
+            reg_label = "Neutral"
+
     # ---- Strikeout % and Walk % (30-day window uses the df above) ----
     rates_30d = _k_bb_rates(df)
     # Season-to-date window: dedicated pull so the season column is accurate
@@ -495,6 +517,8 @@ def get_pitcher_profile(
         "bb_pct_season": rates_season["bb_pct"],
         "babip": babip,
         "lob_pct": lob_pct,
+        "reg_score": reg_score,
+        "reg_label": reg_label,
     }
 
 
@@ -761,6 +785,8 @@ def analyze_slate(date_str: str, log_fn: Callable[[str], None] = print, batter_w
                     "bb_pct_season": prof.get("bb_pct_season"),
                     "babip": prof.get("babip"),
                     "lob_pct": prof.get("lob_pct"),
+                    "reg_score": prof.get("reg_score"),
+                    "reg_label": prof.get("reg_label"),
                 })
 
             prof = pitcher_cache[pid]
