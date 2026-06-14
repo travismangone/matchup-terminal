@@ -114,6 +114,13 @@ def _safe_log(log_fn: Callable[[str], None], msg: str) -> None:
 # Schedule & lineups (MLB Stats API)
 # -----------------------------------------------------------------------------
 
+# Opener overrides: some teams open with a one-inning pitcher, then bring in
+# a bulk/long pitcher. MLB lists the opener as the probable starter, so map
+# team name -> {listed opener: pitcher we actually want to analyze}.
+OPENER_OVERRIDES: Dict[str, Dict[str, str]] = {
+    "Washington Nationals": {"PJ Poulin": "Miles Mikolas"},
+}
+
 def get_slate(date_str: str, log_fn: Callable[[str], None] = print) -> List[Dict]:
     """Return a list of games for the date, each with probable pitchers and lineups."""
     _safe_log(log_fn, f"Fetching schedule for {date_str} ...")
@@ -127,6 +134,15 @@ def get_slate(date_str: str, log_fn: Callable[[str], None] = print) -> List[Dict
         home_team = g.get("home_name")
         away_pitcher_name = g.get("away_probable_pitcher") or g.get("away_pitcher_name") or ""
         home_pitcher_name = g.get("home_probable_pitcher") or g.get("home_pitcher_name") or ""
+        # Some teams use an "opener" who only faces a batter or two before the
+        # bulk pitcher takes over. MLB lists the opener as the probable
+        # starter, but we'd rather analyze the bulk pitcher. Swap by team name.
+        _away_sub = OPENER_OVERRIDES.get(away_team, {})
+        if away_pitcher_name in _away_sub:
+            away_pitcher_name = _away_sub[away_pitcher_name]
+        _home_sub = OPENER_OVERRIDES.get(home_team, {})
+        if home_pitcher_name in _home_sub:
+            home_pitcher_name = _home_sub[home_pitcher_name]
 
         # statsapi.schedule() does not include probable pitcher IDs. Resolve
         # them from the boxscore for completed/in-progress games, and from a
