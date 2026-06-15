@@ -151,6 +151,18 @@ def get_slate(date_str: str, log_fn: Callable[[str], None] = print) -> List[Dict
             game_pk, away_pitcher_name, home_pitcher_name, log_fn
         )
 
+        # If we swapped in an opener override, the boxscore-based IDs above
+        # still point at the opener (boxscore pitchers[0]). Re-resolve the ID
+        # by name so the profile, arsenal, and handedness follow that pitcher.
+        if away_pitcher_name in _away_sub.values():
+            _ov_id = _lookup_player_id(away_pitcher_name, log_fn)
+            if _ov_id:
+                away_pitcher_id = _ov_id
+        if home_pitcher_name in _home_sub.values():
+            _ov_id = _lookup_player_id(home_pitcher_name, log_fn)
+            if _ov_id:
+                home_pitcher_id = _ov_id
+
         away_team_id = g.get("away_id")
         home_team_id = g.get("home_id")
 
