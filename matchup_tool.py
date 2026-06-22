@@ -550,6 +550,67 @@ def get_pitcher_profile(
     }
 
 
+def opponent_offense_30d(
+    lineup: List[Dict],
+    end_date: str,
+    log_fn: Callable[[str], None] = print,
+) -> Dict[str, Optional[float]]:
+    """Aggregate the opposing lineup's last-30-day offense.
+
+    Pulls each hitter's Statcast for the 30 calendar days ending on
+    `end_date` (vs all pitchers) and pools every plate appearance together,
+    then returns lineup-level rates:
+
+      {"opp_k_pct_30d": <pct>, "opp_iso_30d": <iso>, "opp_woba_30d": <woba>}
+
+    These describe how the offense the pitcher is facing today has actually
+    been hitting recently, so the grading engine can reward a pitcher drawing
+    a cold/weak lineup and penalize one drawing a hot/strong lineup.
+    Returns Nones when no data is available.
+    """
+    empty = {"opp_k_pct_30d": None, "opp_iso_30d": None, "opp_woba_30d": None}
+    if not lineup:
+        return empty
+
+    end = _dt.date.fromisoformat(end_date)
+    start = end - _dt.timedelta(days=30)
+    frames = []
+    for b in lineup:
+        bid = b.get("player_id")
+        if not bid:
+            continue
+        _bk = (bid, start.isoformat(), end.isoformat())
+        df = _BATTER_DF_CACHE.get(_bk)
+        if df is None:
+            try:
+                df = statcast_batter(start.isoformat(), end.isoformat(), bid)
+            except Exception as e:
+                _safe_log(log_fn, f"      opp batter {bid} fetch failed: {e}")
+                df = None
+            _BATTER_DF_CACHE[_bk] = df
+        if df is not None and not df.empty:
+            frames.append(df)
+
+    if not frames:
+        return empty
+
+    pooled = pd.concat(frames, ignore_index=True)
+    if "events" not in pooled.columns:
+        return empty
+    results = pooled[pooled["events"].notna()]
+    if results.empty:
+        return empty
+
+    rates = _k_bb_rates(results)
+    out = dict(empty)
+    out["opp_k_pct_30d"] = rates.get("k_pct")
+    out["opp_iso_30d"] = round(_iso_from_events(results["events"]), 3)
+    if "woba_value" in results.columns:
+        woba = float(pd.to_numeric(results["woba_value"], errors="coerce").mean())
+        out["opp_woba_30d"] = None if math.isnan(woba) else round(woba, 3)
+    return out
+
+
 def _k_bb_rates(df) -> Dict[str, Optional[float]]:
     """Return {"k_pct", "bb_pct"} as fractions of plate appearances.
     A plate appearance is any row with a resolved (non-null) events value."""
@@ -796,6 +857,7 @@ def analyze_slate(date_str: str, log_fn: Callable[[str], None] = print, batter_w
                 pitcher_cache[pid] = prof
                 pitcher_meta[pid] = {"name": pname, "team": own_team, "throws": throws,
                                        "opponent": opp_team}
+                opp_off = opponent_offense_30d(lineup, date_str, log_fn=log_fn)
                 pitchers_out.append({
                     "pitcher_id": pid,
                     "name": pname,
@@ -815,6 +877,9 @@ def analyze_slate(date_str: str, log_fn: Callable[[str], None] = print, batter_w
                     "lob_pct": prof.get("lob_pct"),
                     "reg_score": prof.get("reg_score"),
                     "reg_label": prof.get("reg_label"),
+                    "opp_k_pct_30d": opp_off.get("opp_k_pct_30d"),
+                    "opp_iso_30d": opp_off.get("opp_iso_30d"),
+                    "opp_woba_30d": opp_off.get("opp_woba_30d"),
                 })
 
             prof = pitcher_cache[pid]
