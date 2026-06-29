@@ -210,6 +210,9 @@
             <th data-key="woba_edge" class="num">wOBA Edge</th>
             <th data-key="proj_iso" class="num">Proj ISO</th>
             <th data-key="iso_edge" class="num">ISO Edge</th>
+            <th data-key="hardhit_pct_14" class="num" title="Hard-hit% over last 14 days (regressed)">HH% 14d</th>
+            <th data-key="fb_pct_14" class="num" title="Fly-ball% over last 14 days (regressed)">FB% 14d</th>
+            <th data-key="hh_heat" class="num" title="Hard-hit% vs season baseline: + = heating up">HH Heat</th>
             <th data-key="pa_sample" class="num">PA</th>
           </tr>
         </thead>
@@ -338,8 +341,8 @@
     }
     const pHead = ["Grade","Pitcher","Throws","Team","Opponent","Pitches30d","FIP","xFIP","xFIP-FIP","BABIP","LOB%","Regress","K%30d","BB%30d","K%szn","BB%szn","wOBA_vsR","ISO_vsR","wOBA_vsL","ISO_vsL","Arsenal_vsR","Arsenal_vsL"];
     const pKeys = ["grade","name","throws","team","opponent","n_pitches","fip","xfip","xfip_minus_fip","babip","lob_pct","reg_label","k_pct_30d","bb_pct_30d","k_pct_season","bb_pct_season","woba_r","iso_r","woba_l","iso_l","arsenal_r","arsenal_l"];
-    const bHead = ["Grade","Order","Batter","Team","Side","vs_Pitcher","P_Throws","Lineup","Proj_wOBA","wOBA_Edge","Proj_ISO","ISO_Edge","PA"];
-    const bKeys = ["grade","order","name","team","bat_side","vs_pitcher","pitcher_throws","lineup_status","proj_woba","woba_edge","proj_iso","iso_edge","pa_sample"];
+    const bHead = ["Grade","Order","Batter","Team","Side","vs_Pitcher","P_Throws","Lineup","Proj_wOBA","wOBA_Edge","Proj_ISO","ISO_Edge","HardHit%_14d","FB%_14d","HH_Heat","Season_HardHit%","PA"];
+    const bKeys = ["grade","order","name","team","bat_side","vs_pitcher","pitcher_throws","lineup_status","proj_woba","woba_edge","proj_iso","iso_edge","hardhit_pct_14","fb_pct_14","hh_heat","hardhit_season","pa_sample"];
     let csv = "STARTING PITCHERS\n" + rowsToCsv(pHead, pKeys, pitchersData) + "\n\n";
     csv += "BATTERS\n" + rowsToCsv(bHead, bKeys, battersData) + "\n";
     const dateStr = (dateInput.value || "slate");
@@ -445,6 +448,8 @@
       ["proj_woba", 1.2, 1],
       ["iso_edge", 0.7, 1],
       ["proj_iso", 0.4, 1],
+      ["hh_heat", 0.5, 1],
+      ["fb_heat", 0.3, 1],
     ]);
     renderBatters();
     batterPanel.style.display = battersData.length ? "" : "none";
@@ -648,6 +653,9 @@
         '<td class="num edge-cell" style="color:' + edgeColor(b.woba_edge, 0.05) + '">' + fmtSigned(b.woba_edge) + '</td>' +
         '<td class="num">' + fmt3(b.proj_iso) + '</td>' +
         '<td class="num edge-cell" style="color:' + edgeColor(b.iso_edge, 0.04) + '">' + fmtSigned(b.iso_edge) + '</td>' +
+        '<td class="num">' + fmtPct1(b.hardhit_pct_14) + '</td>' +
+        '<td class="num">' + fmtPct1(b.fb_pct_14) + '</td>' +
+        '<td class="num edge-cell" style="color:' + edgeColor(b.hh_heat, 0.05) + '">' + fmtHeat(b.hh_heat) + '</td>' +
         '<td class="num">' + (b.pa_sample || 0) + '</td>';
       battersBody.appendChild(tr);
     });
@@ -724,6 +732,12 @@
   function fmtSigned(v) {
     if (v == null || isNaN(v)) return "-";
     return (v >= 0 ? "+" : "") + v.toFixed(3);
+  }
+  // Batted-ball rates come from the backend as 0-1 fractions.
+  function fmtPct1(v) { return (v == null || isNaN(v)) ? "-" : (v * 100).toFixed(1) + "%"; }
+  function fmtHeat(v) {
+    if (v == null || isNaN(v)) return "-";
+    return (v >= 0 ? "+" : "") + (v * 100).toFixed(1) + "%";
   }
   function escapeHtml(s) {
     return String(s == null ? "" : s)
