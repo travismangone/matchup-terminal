@@ -26,6 +26,7 @@ import logging
 import math
 import os
 import time
+import gc
 from collections import defaultdict
 from typing import Callable, Dict, List, Optional
 
@@ -982,6 +983,7 @@ def analyze_slate(date_str: str, log_fn: Callable[[str], None] = print, batter_w
 
     pitchers_out: List[Dict] = []
     batters_out: List[Dict] = []
+    _batters_done = 0  # for periodic gc to keep free-tier memory flat
     skipped: List[Dict] = []
 
     # Cache pitcher profiles so each starter is fetched at most once.
@@ -1077,6 +1079,15 @@ def analyze_slate(date_str: str, log_fn: Callable[[str], None] = print, batter_w
                     "fb_heat": form["fb_heat"],
                     "bbe_14": form["bbe_14"],
                 })
+                # Free this hitter's Statcast frames now that his row is built.
+                # Keeping every batter's 2-season frame in _BATTER_DF_CACHE for the
+                # whole slate is what OOM-kills the free-tier worker. Each batter is
+                # processed once, so we can drop his frames immediately.
+                for _ck in [k for k in _BATTER_DF_CACHE if k and k[0] == b["player_id"]]:
+                    _BATTER_DF_CACHE.pop(_ck, None)
+                _batters_done += 1
+                if _batters_done % 20 == 0:
+                    gc.collect()
 
     batters_out.sort(key=lambda r: r["woba_edge"], reverse=True)
 
@@ -1084,6 +1095,11 @@ def analyze_slate(date_str: str, log_fn: Callable[[str], None] = print, batter_w
     _safe_log(log_fn, f"=== done in {elapsed:.1f}s. "
                        f"{len(pitchers_out)} pitchers, {len(batters_out)} batters, "
                        f"{len(skipped)} skipped ===")
+
+    # Defensive: release any remaining cached frames before returning so
+    # memory is flat between runs on the long-lived free-tier worker.
+    _BATTER_DF_CACHE.clear()
+    gc.collect()
 
     return {
         "date": date_str,
