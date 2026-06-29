@@ -90,6 +90,94 @@ LEAGUE_FB_PCT = 0.24        # share of batted balls classified fly_ball
 # this many BBE in the window is weighted 50/50 with league average.
 BBE_SHRINKAGE = 25
 
+# -----------------------------------------------------------------------------
+# DraftKings DFS projection
+# -----------------------------------------------------------------------------
+# We turn the matchup signals (projected wOBA / ISO vs today's pitcher, the
+# hitter's lineup spot, and the hot-streak "heat") into an expected DraftKings
+# fantasy-point total for the day. The chain is:
+#   1. expected plate appearances from batting order (top of the order bats more)
+#   2. a per-PA outcome vector (BB/HBP/1B/2B/3B/HR) reverse-engineered from the
+#      projected wOBA & ISO using a league-average outcome shape as the prior
+#   3. a small, capped "heat" multiplier on the power outcomes so hot bats get a
+#      modest bump (the whole point of the 14-day window) without a tiny sample
+#      dominating the projection
+#   4. rough runs/RBI per PA scaled by the hitter's own quality
+#   5. dot it all with the DK scoring weights.
+
+# DraftKings hitter scoring.
+DK_SCORING = {
+    "single": 3.0, "double": 5.0, "triple": 8.0, "hr": 10.0,
+    "rbi": 2.0, "run": 2.0, "bb": 2.0, "hbp": 2.0, "sb": 5.0,
+}
+
+# Expected plate appearances by batting-order slot (typical 9-inning game).
+PA_BY_ORDER = {1: 4.65, 2: 4.55, 3: 4.45, 4: 4.35, 5: 4.25,
+               6: 4.12, 7: 4.00, 8: 3.88, 9: 3.76}
+
+# League-average per-PA outcome rates (rough 2024) used as the structural shape
+# we scale to each hitter's projected wOBA / ISO.
+LG_RATE = {"bb": 0.085, "hbp": 0.011, "h1": 0.135, "h2": 0.043, "h3": 0.004, "hr": 0.033}
+# wOBA linear weights (rough 2024).
+WOBA_W = {"bb": 0.69, "hbp": 0.72, "h1": 0.89, "h2": 1.27, "h3": 1.62, "hr": 2.10}
+LG_WOBA_BASE = 0.317   # wOBA implied by LG_RATE + WOBA_W
+LG_ISO_BASE = 0.166    # ISO implied by LG_RATE
+
+# Heat -> power multiplier. Each +1.00 (100pp) of hard-hit heat would move power
+# outcomes by HEAT_POWER_GAIN; in practice heat is a few pp, and the result is
+# clamped to HEAT_MULT_CLAMP so a 14-day hot streak nudges but never dominates.
+HEAT_POWER_GAIN = 0.6
+HEAT_MULT_CLAMP = (0.85, 1.20)
+
+# Rough league runs / RBI per PA for a full-time hitter, scaled per batter.
+RUNS_PER_PA = 0.115
+RBI_PER_PA = 0.105
+
+
+def dk_projection(order: Optional[int], proj_woba: Optional[float],
+                  proj_iso: Optional[float], hh_heat: Optional[float] = None) -> Dict:
+    """Expected DraftKings points for a hitter today. Returns the point total
+    plus the pieces (expected PA and the per-PA outcome rates) for transparency."""
+    pw = proj_woba if (proj_woba is not None) else LG_WOBA_BASE
+    pi = proj_iso if (proj_iso is not None) else LG_ISO_BASE
+    pa = PA_BY_ORDER.get(int(order), 4.10) if order else 4.10
+
+    # Scale power outcomes by the ISO ratio, walks mildly by the wOBA ratio.
+    k_pow = min(2.5, max(0.3, pi / LG_ISO_BASE))
+    k_w = min(1.8, max(0.5, pw / LG_WOBA_BASE))
+    h2 = LG_RATE["h2"] * k_pow
+    h3 = LG_RATE["h3"] * k_pow
+    hr = LG_RATE["hr"] * k_pow
+    bb = LG_RATE["bb"] * k_w
+    hbp = LG_RATE["hbp"]
+    # Solve singles so the outcome vector reproduces the target wOBA.
+    h1 = (pw - (WOBA_W["bb"] * bb + WOBA_W["hbp"] * hbp
+                + WOBA_W["h2"] * h2 + WOBA_W["h3"] * h3
+                + WOBA_W["hr"] * hr)) / WOBA_W["h1"]
+    h1 = max(0.02, h1)
+
+    # Modest, capped heat bump on power outcomes.
+    hmult = 1.0 + HEAT_POWER_GAIN * (hh_heat or 0.0)
+    hmult = min(HEAT_MULT_CLAMP[1], max(HEAT_MULT_CLAMP[0], hmult))
+    h2 *= hmult
+    h3 *= hmult
+    hr *= hmult
+
+    per_pa_events = (DK_SCORING["single"] * h1 + DK_SCORING["double"] * h2
+                     + DK_SCORING["triple"] * h3 + DK_SCORING["hr"] * hr
+                     + DK_SCORING["bb"] * bb + DK_SCORING["hbp"] * hbp)
+    r_per_pa = RUNS_PER_PA * (pw / LG_WOBA_BASE)
+    rbi_per_pa = RBI_PER_PA * (0.5 + 0.5 * (pi / LG_ISO_BASE))
+    per_pa_rr = DK_SCORING["run"] * r_per_pa + DK_SCORING["rbi"] * rbi_per_pa
+
+    total = pa * (per_pa_events + per_pa_rr)
+    return {
+        "dk_points": round(total, 2),
+        "exp_pa": round(pa, 2),
+        "heat_mult": round(hmult, 3),
+    }
+
+
 logger = logging.getLogger(__name__)
 
 # Enable pybaseball's on-disk cache so repeated runs are fast.
@@ -1056,6 +1144,8 @@ def analyze_slate(date_str: str, log_fn: Callable[[str], None] = print, batter_w
                     _f_start = _dt.date(_dt.date.fromisoformat(date_str).year - (BATTER_LOOKBACK_SEASONS - 1), 1, 1)
                 _f_df = _BATTER_DF_CACHE.get((b["player_id"], _f_start.isoformat(), date_str))
                 form = get_batter_form(b["player_id"], date_str, df=_f_df, log_fn=log_fn)
+                _dk = dk_projection(b["order"], score["proj_woba"],
+                                    score["proj_iso"], form["hh_heat"])
                 batters_out.append({
                     "batter_id": b["player_id"],
                     "name": b["name"],
@@ -1078,6 +1168,8 @@ def analyze_slate(date_str: str, log_fn: Callable[[str], None] = print, batter_w
                     "hh_heat": form["hh_heat"],
                     "fb_heat": form["fb_heat"],
                     "bbe_14": form["bbe_14"],
+                    "dk_points": _dk["dk_points"],
+                    "exp_pa": _dk["exp_pa"],
                 })
                 # Free this hitter's Statcast frames now that his row is built.
                 # Keeping every batter's 2-season frame in _BATTER_DF_CACHE for the
