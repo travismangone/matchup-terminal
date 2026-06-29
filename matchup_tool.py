@@ -797,15 +797,22 @@ def _shrink(rate: Optional[float], n: int, prior: float, k: float = BBE_SHRINKAG
 def get_batter_form(
     batter_id: int,
     end_date: str,
+    df=None,
     log_fn: Callable[[str], None] = print,
 ) -> Dict:
-    """Recent batted-ball 'heat' for a hitter.
+    """Recent batted-ball 'heat' for a hitter, computed by SLICING an existing
+    Statcast frame (no extra network calls in the common case).
+
+    `df` should be a Statcast batter frame that already covers at least the
+    current season through end_date (e.g. the season frame the projection step
+    already pulled). We slice the last BATTED_BALL_FORM_DAYS and the season rows
+    out of it by game_date. If `df` is missing or doesn't reach back far enough
+    to cover the season, we fall back to a single season pull.
 
     Computes regressed last-N-day hard-hit% / fly-ball% and compares them to the
     hitter's own (regressed) season rates. The 'heat' deltas (last-N minus
     season) are the hot-streak signal: positive => hitting it harder / in the
-    air more than his own norm. Independent of the projection window so it is
-    always a recent-form read.
+    air more than his own norm.
 
     Returns keys:
       hardhit_pct_14, fb_pct_14   -> regressed recent rates (0-1) or None
@@ -817,20 +824,49 @@ def get_batter_form(
     recent_start = end - _dt.timedelta(days=BATTED_BALL_FORM_DAYS)
     season_start = _dt.date(end.year, 1, 1)
 
-    def _pull(start):
-        _bk = (batter_id, start.isoformat(), end.isoformat())
-        df = _BATTER_DF_CACHE.get(_bk)
-        if df is None:
+    def _empty():
+        return {
+            "hardhit_pct_14": None, "fb_pct_14": None,
+            "hardhit_season": None, "fb_season": None,
+            "hh_heat": None, "fb_heat": None, "bbe_14": 0,
+        }
+
+    # Decide whether the supplied frame reaches back to the start of the season.
+    # If not, fall back to pulling a season frame once (cached for reuse).
+    need_pull = True
+    if df is not None and not getattr(df, "empty", True) and "game_date" in df.columns:
+        try:
+            gd = pd.to_datetime(df["game_date"], errors="coerce")
+            earliest = gd.min()
+            if pd.notna(earliest) and earliest.date() <= season_start:
+                need_pull = False
+        except Exception:
+            need_pull = True
+
+    if need_pull:
+        _bk = (batter_id, season_start.isoformat(), end.isoformat())
+        cached = _BATTER_DF_CACHE.get(_bk)
+        if cached is None:
             try:
-                df = statcast_batter(start.isoformat(), end.isoformat(), batter_id)
+                cached = statcast_batter(season_start.isoformat(), end.isoformat(), batter_id)
             except Exception as e:
                 _safe_log(log_fn, f"      batter form fetch failed: {e}")
-                df = None
-            _BATTER_DF_CACHE[_bk] = df
-        return df
+                cached = None
+            _BATTER_DF_CACHE[_bk] = cached
+        df = cached
 
-    recent_raw = _batted_ball_rates(_pull(recent_start))
-    season_raw = _batted_ball_rates(_pull(season_start))
+    if df is None or getattr(df, "empty", True) or "game_date" not in df.columns:
+        return _empty()
+
+    gd = pd.to_datetime(df["game_date"], errors="coerce")
+    season_mask = gd.dt.date >= season_start
+    recent_mask = gd.dt.date >= recent_start
+
+    season_df = df[season_mask]
+    recent_df = df[recent_mask]
+
+    recent_raw = _batted_ball_rates(recent_df)
+    season_raw = _batted_ball_rates(season_df)
 
     hh_14 = _shrink(recent_raw["hardhit"], recent_raw["bbe"], LEAGUE_HARDHIT_PCT)
     fb_14 = _shrink(recent_raw["fb"], recent_raw["bbe"], LEAGUE_FB_PCT)
@@ -1010,7 +1046,14 @@ def analyze_slate(date_str: str, log_fn: Callable[[str], None] = print, batter_w
                 eff_side = _effective_bat_side(b["bat_side"], throws)
                 bprof = get_batter_profile(b["player_id"], date_str, throws, log_fn=log_fn, window=batter_window)
                 score = score_matchup(prof, throws, bprof, b["bat_side"])
-                form = get_batter_form(b["player_id"], date_str, log_fn=log_fn)
+                # Reuse the frame the projection already pulled (slice it for
+                # form) so we don't make extra Statcast calls per hitter.
+                if batter_window == "last30":
+                    _f_start = _dt.date.fromisoformat(date_str) - _dt.timedelta(days=30)
+                else:
+                    _f_start = _dt.date(_dt.date.fromisoformat(date_str).year - (BATTER_LOOKBACK_SEASONS - 1), 1, 1)
+                _f_df = _BATTER_DF_CACHE.get((b["player_id"], _f_start.isoformat(), date_str))
+                form = get_batter_form(b["player_id"], date_str, df=_f_df, log_fn=log_fn)
                 batters_out.append({
                     "batter_id": b["player_id"],
                     "name": b["name"],
