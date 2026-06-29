@@ -71,6 +71,24 @@ BATTER_LOOKBACK_SEASONS = 2
 FIP_CONSTANT = 3.10
 LEAGUE_HR_PER_FB = 0.12
 
+# -----------------------------------------------------------------------------
+# Batted-ball "form" signal (hot-streak detection)
+# -----------------------------------------------------------------------------
+# Hard-hit% and fly-ball% over a short recent window, used to flag hitters who
+# are heating up RELATIVE TO THEIR OWN season baseline. We compute a regressed
+# last-N-day rate (shrunk toward league average so tiny samples don't lie) and
+# subtract the player's regressed season rate to get a "heat" delta. Positive
+# heat => hitting the ball harder / in the air more than usual = hot.
+BATTED_BALL_FORM_DAYS = 14
+
+# League-average batted-ball rates (rough 2024). Priors for shrinkage.
+LEAGUE_HARDHIT_PCT = 0.40   # share of batted balls >= 95 mph EV
+LEAGUE_FB_PCT = 0.24        # share of batted balls classified fly_ball
+
+# Shrinkage strength for batted-ball rates, in "batted balls". A hitter with
+# this many BBE in the window is weighted 50/50 with league average.
+BBE_SHRINKAGE = 25
+
 logger = logging.getLogger(__name__)
 
 # Enable pybaseball's on-disk cache so repeated runs are fast.
@@ -731,6 +749,109 @@ def _empty_batter_profile() -> Dict:
 
 
 # -----------------------------------------------------------------------------
+# Batted-ball form (hard-hit% / fly-ball%) helpers
+# -----------------------------------------------------------------------------
+
+def _batted_ball_rates(df) -> Dict[str, Optional[float]]:
+    """Raw hard-hit% and fly-ball% from a Statcast frame, plus batted-ball count.
+
+    Batted balls = rows with a non-null bb_type (i.e. balls put in play).
+    Hard-hit = launch_speed >= 95 mph. Fly-ball = bb_type == "fly_ball".
+    Returns raw (un-regressed) rates; None when there are no batted balls.
+    """
+    if df is None or getattr(df, "empty", True):
+        return {"hardhit": None, "fb": None, "bbe": 0}
+    if "bb_type" not in df.columns:
+        return {"hardhit": None, "fb": None, "bbe": 0}
+
+    bip = df[df["bb_type"].notna()]
+    bbe = int(len(bip))
+    if bbe == 0:
+        return {"hardhit": None, "fb": None, "bbe": 0}
+
+    if "launch_speed" in bip.columns:
+        ev = pd.to_numeric(bip["launch_speed"], errors="coerce")
+        hard = int((ev >= 95).sum())
+        hardhit = hard / bbe
+    else:
+        hardhit = None
+
+    fb = int((bip["bb_type"] == "fly_ball").sum())
+    fb_pct = fb / bbe
+
+    return {"hardhit": hardhit, "fb": fb_pct, "bbe": bbe}
+
+
+def _shrink(rate: Optional[float], n: int, prior: float, k: float = BBE_SHRINKAGE) -> Optional[float]:
+    """Shrink a small-sample rate toward a league-average prior.
+
+    weight = n / (n + k). With n batted balls the rate is pulled toward the
+    prior; more BBE => closer to the observed rate.
+    """
+    if rate is None or n <= 0:
+        return None
+    w = n / (n + k)
+    return w * rate + (1 - w) * prior
+
+
+def get_batter_form(
+    batter_id: int,
+    end_date: str,
+    log_fn: Callable[[str], None] = print,
+) -> Dict:
+    """Recent batted-ball 'heat' for a hitter.
+
+    Computes regressed last-N-day hard-hit% / fly-ball% and compares them to the
+    hitter's own (regressed) season rates. The 'heat' deltas (last-N minus
+    season) are the hot-streak signal: positive => hitting it harder / in the
+    air more than his own norm. Independent of the projection window so it is
+    always a recent-form read.
+
+    Returns keys:
+      hardhit_pct_14, fb_pct_14   -> regressed recent rates (0-1) or None
+      hardhit_season, fb_season   -> regressed season baselines (0-1) or None
+      hh_heat, fb_heat            -> recent minus season (signed) or None
+      bbe_14                      -> batted balls in the recent window
+    """
+    end = _dt.date.fromisoformat(end_date)
+    recent_start = end - _dt.timedelta(days=BATTED_BALL_FORM_DAYS)
+    season_start = _dt.date(end.year, 1, 1)
+
+    def _pull(start):
+        _bk = (batter_id, start.isoformat(), end.isoformat())
+        df = _BATTER_DF_CACHE.get(_bk)
+        if df is None:
+            try:
+                df = statcast_batter(start.isoformat(), end.isoformat(), batter_id)
+            except Exception as e:
+                _safe_log(log_fn, f"      batter form fetch failed: {e}")
+                df = None
+            _BATTER_DF_CACHE[_bk] = df
+        return df
+
+    recent_raw = _batted_ball_rates(_pull(recent_start))
+    season_raw = _batted_ball_rates(_pull(season_start))
+
+    hh_14 = _shrink(recent_raw["hardhit"], recent_raw["bbe"], LEAGUE_HARDHIT_PCT)
+    fb_14 = _shrink(recent_raw["fb"], recent_raw["bbe"], LEAGUE_FB_PCT)
+    hh_szn = _shrink(season_raw["hardhit"], season_raw["bbe"], LEAGUE_HARDHIT_PCT)
+    fb_szn = _shrink(season_raw["fb"], season_raw["bbe"], LEAGUE_FB_PCT)
+
+    hh_heat = (hh_14 - hh_szn) if (hh_14 is not None and hh_szn is not None) else None
+    fb_heat = (fb_14 - fb_szn) if (fb_14 is not None and fb_szn is not None) else None
+
+    return {
+        "hardhit_pct_14": hh_14,
+        "fb_pct_14": fb_14,
+        "hardhit_season": hh_szn,
+        "fb_season": fb_szn,
+        "hh_heat": hh_heat,
+        "fb_heat": fb_heat,
+        "bbe_14": recent_raw["bbe"],
+    }
+
+
+# -----------------------------------------------------------------------------
 # Matchup scoring
 # -----------------------------------------------------------------------------
 
@@ -889,6 +1010,7 @@ def analyze_slate(date_str: str, log_fn: Callable[[str], None] = print, batter_w
                 eff_side = _effective_bat_side(b["bat_side"], throws)
                 bprof = get_batter_profile(b["player_id"], date_str, throws, log_fn=log_fn, window=batter_window)
                 score = score_matchup(prof, throws, bprof, b["bat_side"])
+                form = get_batter_form(b["player_id"], date_str, log_fn=log_fn)
                 batters_out.append({
                     "batter_id": b["player_id"],
                     "name": b["name"],
@@ -904,6 +1026,13 @@ def analyze_slate(date_str: str, log_fn: Callable[[str], None] = print, batter_w
                     "woba_edge": score["woba_edge"],
                     "iso_edge": score["iso_edge"],
                     "pa_sample": bprof["pa"],
+                    "hardhit_pct_14": form["hardhit_pct_14"],
+                    "fb_pct_14": form["fb_pct_14"],
+                    "hardhit_season": form["hardhit_season"],
+                    "fb_season": form["fb_season"],
+                    "hh_heat": form["hh_heat"],
+                    "fb_heat": form["fb_heat"],
+                    "bbe_14": form["bbe_14"],
                 })
 
     batters_out.sort(key=lambda r: r["woba_edge"], reverse=True)
