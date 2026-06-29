@@ -160,6 +160,7 @@
         <thead>
           <tr>
             <th data-key="grade_score" class="num">Grade</th>
+            <th data-key="dk_points" class="num" title="Projected DraftKings points (exp PA x per-PA outcomes, heat-adjusted)">DK Pts</th>
             <th data-key="name">Pitcher</th>
             <th data-key="throws">T</th>
             <th data-key="team">Team</th>
@@ -341,8 +342,8 @@
     }
     const pHead = ["Grade","Pitcher","Throws","Team","Opponent","Pitches30d","FIP","xFIP","xFIP-FIP","BABIP","LOB%","Regress","K%30d","BB%30d","K%szn","BB%szn","wOBA_vsR","ISO_vsR","wOBA_vsL","ISO_vsL","Arsenal_vsR","Arsenal_vsL"];
     const pKeys = ["grade","name","throws","team","opponent","n_pitches","fip","xfip","xfip_minus_fip","babip","lob_pct","reg_label","k_pct_30d","bb_pct_30d","k_pct_season","bb_pct_season","woba_r","iso_r","woba_l","iso_l","arsenal_r","arsenal_l"];
-    const bHead = ["Grade","Order","Batter","Team","Side","vs_Pitcher","P_Throws","Lineup","Proj_wOBA","wOBA_Edge","Proj_ISO","ISO_Edge","HardHit%_14d","FB%_14d","HH_Heat","Season_HardHit%","PA"];
-    const bKeys = ["grade","order","name","team","bat_side","vs_pitcher","pitcher_throws","lineup_status","proj_woba","woba_edge","proj_iso","iso_edge","hardhit_pct_14","fb_pct_14","hh_heat","hardhit_season","pa_sample"];
+    const bHead = ["Grade","DK_Pts","Order","Batter","Team","Side","vs_Pitcher","P_Throws","Lineup","Proj_wOBA","wOBA_Edge","Proj_ISO","ISO_Edge","HardHit%_14d","FB%_14d","HH_Heat","Season_HardHit%","PA"];
+    const bKeys = ["grade","dk_points","order","name","team","bat_side","vs_pitcher","pitcher_throws","lineup_status","proj_woba","woba_edge","proj_iso","iso_edge","hardhit_pct_14","fb_pct_14","hh_heat","hardhit_season","pa_sample"];
     let csv = "STARTING PITCHERS\n" + rowsToCsv(pHead, pKeys, pitchersData) + "\n\n";
     csv += "BATTERS\n" + rowsToCsv(bHead, bKeys, battersData) + "\n";
     const dateStr = (dateInput.value || "slate");
@@ -445,6 +446,7 @@
     battersData = res.batters || [];
     gradeRows(battersData, [
       ["woba_edge", 1.5, 1],
+      ["dk_points", 0.8, 1],
       ["proj_woba", 1.2, 1],
       ["iso_edge", 0.7, 1],
       ["proj_iso", 0.4, 1],
@@ -643,6 +645,7 @@
       const tr = document.createElement("tr");
       tr.innerHTML =
         '<td class="num"><span class="grade-badge" style="background:' + gradeColor(b.grade_score) + '">' + (b.grade || '-') + '</span></td>' +
+        '<td class="num" style="font-weight:600">' + fmtDk(b.dk_points) + '</td>' +
         '<td class="num">' + b.order + '</td>' +
         '<td>' + escapeHtml(b.name) + (b.lineup_status === "projected" ? ' <span class="proj-badge" title="Projected lineup \u2014 not yet official">proj</span>' : '') + '</td>' +
         '<td>' + escapeHtml(b.team || "") + '</td>' +
@@ -739,6 +742,8 @@
     if (v == null || isNaN(v)) return "-";
     return (v >= 0 ? "+" : "") + (v * 100).toFixed(1) + "%";
   }
+  // Projected DraftKings points; one decimal, dash when missing.
+  function fmtDk(v) { return (v == null || isNaN(v)) ? "-" : Number(v).toFixed(1); }
   function escapeHtml(s) {
     return String(s == null ? "" : s)
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
