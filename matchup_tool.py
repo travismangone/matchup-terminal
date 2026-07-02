@@ -90,6 +90,18 @@ LEAGUE_FB_PCT = 0.24        # share of batted balls classified fly_ball
 # this many BBE in the window is weighted 50/50 with league average.
 BBE_SHRINKAGE = 25
 
+# Matchup coupling: how strongly the OPPOSING pitcher's pitch-type wOBA/ISO
+# allowed (relative to league) is folded into the hitter's projection. The
+# projected rate becomes: batter_skill + PITCHER_BASELINE_BLEND * (pitcher_
+# allowed - league). 0.0 = ignore the pitcher (old behavior, hitter vs a
+# generic arm), 1.0 = full log5-style adjustment. A tough arm pushes the
+# projection (and the offense grade) down; a weak arm pushes it up.
+PITCHER_BASELINE_BLEND = 0.6
+# Shrinkage strength (in resolved plate appearances) for the pitcher's allowed
+# rates by pitch type. A pitcher with this many PAs on a pitch type is weighted
+# 50/50 with the league baseline before the adjustment above is applied.
+PITCHER_ALLOWED_SHRINKAGE = 40
+
 # -----------------------------------------------------------------------------
 # DraftKings DFS projection
 # -----------------------------------------------------------------------------
@@ -546,6 +558,28 @@ def get_pitcher_profile(
             iso = _iso_from_events(sub["events"])
             splits[side] = {"woba": woba, "iso": iso}
 
+    # ---- Per-pitch-type wOBA/ISO ALLOWED (for matchup-specific projection) ----
+    # For each batter side and pitch bucket, how the pitcher has actually been
+    # hit. score_matchup folds this into each hitter's projection so a strong
+    # arm suppresses the opposing offense (and a weak arm inflates it).
+    allowed: Dict[str, Dict[str, Dict[str, float]]] = {"R": {}, "L": {}}
+    if "events" in df.columns and "woba_value" in df.columns:
+        res_all = df[df["events"].notna() & (df["events"] != "")]
+        for side in ("R", "L"):
+            side_rows = res_all[res_all["stand"] == side]
+            if side_rows.empty:
+                continue
+            for pt in PITCH_TYPES + ["OTHER"]:
+                grp = side_rows[side_rows["pt"] == pt]
+                n = int(len(grp))
+                if n == 0:
+                    continue
+                w_raw = float(pd.to_numeric(grp["woba_value"], errors="coerce").mean())
+                if math.isnan(w_raw):
+                    w_raw = LEAGUE_WOBA_BY_PITCH[pt]
+                i_raw = _iso_from_events(grp["events"])
+                allowed[side][pt] = {"woba": w_raw, "iso": i_raw, "n": n}
+
     # ---- FIP / xFIP (regression signal) ----
     fip = None
     xfip = None
@@ -643,6 +677,7 @@ def get_pitcher_profile(
     return {
         "arsenal": arsenal,
         "splits": splits,
+        "allowed": allowed,
         "n_pitches": int(len(df)),
         "fip": fip,
         "xfip": xfip,
@@ -733,7 +768,7 @@ def _k_bb_rates(df) -> Dict[str, Optional[float]]:
 
 
 def _empty_pitcher_profile() -> Dict:
-    return {"arsenal": {"R": {}, "L": {}}, "splits": {"R": {}, "L": {}}, "n_pitches": 0, "fip": None, "xfip": None, "k_pct_30d": None, "bb_pct_30d": None, "k_pct_season": None, "bb_pct_season": None, "babip": None, "lob_pct": None}
+    return {"arsenal": {"R": {}, "L": {}}, "splits": {"R": {}, "L": {}}, "allowed": {"R": {}, "L": {}}, "n_pitches": 0, "fip": None, "xfip": None, "k_pct_30d": None, "bb_pct_30d": None, "k_pct_season": None, "bb_pct_season": None, "babip": None, "lob_pct": None}
 
 
 def _iso_from_events(events: pd.Series) -> float:
@@ -1012,6 +1047,21 @@ def score_matchup(
 
     by_pt = batter_profile.get("by_pitch", {}) or {}
 
+    # Pitcher's actual wOBA/ISO allowed by pitch type (to this side). Folded
+    # into the projection below so the matchup, not just the hitter, matters.
+    allowed = (pitcher_profile.get("allowed", {}) or {}).get(eff_side, {}) or {}
+    if not allowed:
+        combined_al: Dict[str, Dict[str, float]] = {}
+        for side_al in (pitcher_profile.get("allowed", {}) or {}).values():
+            for pt, rec in side_al.items():
+                cur = combined_al.setdefault(pt, {"woba": 0.0, "iso": 0.0, "n": 0})
+                n_pt = rec.get("n", 0)
+                cur["woba"] += rec.get("woba", 0.0) * n_pt
+                cur["iso"] += rec.get("iso", 0.0) * n_pt
+                cur["n"] += n_pt
+        allowed = {pt: {"woba": v["woba"] / v["n"], "iso": v["iso"] / v["n"], "n": v["n"]}
+                   for pt, v in combined_al.items() if v["n"] > 0}
+
     proj_woba = 0.0
     proj_iso = 0.0
     lg_woba = 0.0
@@ -1023,10 +1073,25 @@ def score_matchup(
             continue
         b = by_pt.get(pt, {"woba": LEAGUE_WOBA_BY_PITCH.get(pt, 0.315),
                             "iso": LEAGUE_ISO_BY_PITCH.get(pt, 0.150)})
-        proj_woba += frac * b["woba"]
-        proj_iso += frac * b["iso"]
-        lg_woba += frac * LEAGUE_WOBA_BY_PITCH.get(pt, 0.315)
-        lg_iso += frac * LEAGUE_ISO_BY_PITCH.get(pt, 0.150)
+        lg_pt_woba = LEAGUE_WOBA_BY_PITCH.get(pt, 0.315)
+        lg_pt_iso = LEAGUE_ISO_BY_PITCH.get(pt, 0.150)
+        # Start from the hitter's own skill on this pitch type, then nudge it by
+        # how much THIS pitcher suppresses (or inflates) results vs league. A
+        # log5-style adjustment: proj = batter + blend * (pitcher_allowed - lg).
+        proj_pt_woba = b["woba"]
+        proj_pt_iso = b["iso"]
+        al = allowed.get(pt)
+        if al and al.get("n", 0) > 0:
+            n_al = al["n"]
+            shrink = n_al / (n_al + PITCHER_ALLOWED_SHRINKAGE)
+            pit_woba = shrink * al["woba"] + (1 - shrink) * lg_pt_woba
+            pit_iso = shrink * al["iso"] + (1 - shrink) * lg_pt_iso
+            proj_pt_woba = b["woba"] + PITCHER_BASELINE_BLEND * (pit_woba - lg_pt_woba)
+            proj_pt_iso = b["iso"] + PITCHER_BASELINE_BLEND * (pit_iso - lg_pt_iso)
+        proj_woba += frac * proj_pt_woba
+        proj_iso += frac * max(0.0, proj_pt_iso)
+        lg_woba += frac * lg_pt_woba
+        lg_iso += frac * lg_pt_iso
         weight_sum += frac
 
     if weight_sum > 0:
