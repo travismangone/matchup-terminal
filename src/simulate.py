@@ -130,3 +130,42 @@ def simulate(skills: dict[str, float]) -> SimResult:
         dk_points=dk_placement + dk_scoring,
         dk_placement=dk_placement, dk_scoring=dk_scoring, n_sims=n_sims,
     )
+
+
+def simulate_dk_matrix(skills: dict[str, float], n_sims: int):
+    """Like simulate() but RETAINS the per-sim DK point total for every player
+    (n_sims x n_players), for the optimal-lineup exposure calc. float32, chunked."""
+    names = list(skills.keys())
+    mu = np.array([skills[n] for n in names], dtype=np.float32)
+    P = len(names)
+    rounds = EVENT["rounds"]
+    sigma = SIM["round_sigma"] * SIM["wind_factor"]
+    top_n = EVENT["cut_rule"]["top_n"]
+    rng = np.random.default_rng(SIM["seed"])
+    rank_pts = np.zeros(P, dtype=np.float32)
+    fill = min(len(DK_PLACEMENT_POINTS), P)
+    rank_pts[:fill] = DK_PLACEMENT_POINTS[:fill]
+
+    dk = np.empty((n_sims, P), dtype=np.float32)
+    k = min(top_n, P) - 1
+    ar = np.arange(P)
+    chunk = SIM.get("chunk", 4000)
+    done = 0
+    while done < n_sims:
+        m = min(chunk, n_sims - done)
+        sg = mu[None, :, None] + rng.normal(0.0, sigma, size=(m, P, rounds)).astype(np.float32)
+        first36 = sg[:, :, :2].sum(axis=2)
+        total72 = sg.sum(axis=2)
+        cut_line = np.partition(first36, P - 1 - k, axis=1)[:, P - 1 - k]
+        made_cut = first36 >= cut_line[:, None]
+        eff = np.where(made_cut, total72, -np.inf) + rng.normal(0, 1e-6, size=total72.shape)
+        order = np.argsort(-eff, axis=1)
+        finish = np.empty_like(order)
+        np.put_along_axis(finish, order, np.broadcast_to(ar, order.shape), axis=1)
+        place = rank_pts[finish]
+        sc = np.clip(DK_SCORING["base"] + DK_SCORING["slope"] * sg,
+                     DK_SCORING["floor"], DK_SCORING["cap"])
+        score = sc[:, :, :2].sum(axis=2) + sc[:, :, 2:].sum(axis=2) * made_cut
+        dk[done:done + m] = place + score
+        done += m
+    return names, dk

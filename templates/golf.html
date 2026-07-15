@@ -99,6 +99,7 @@
   <button data-tab="proj" class="on">Projections</button>
   <button data-tab="sg">Strokes Gained</button>
   <button data-tab="dfs">DFS Value</button>
+  <button data-tab="sim">Optimal</button>
   <button data-tab="plays">Best Plays</button>
   <button data-tab="scan">EV Scanner</button>
   <button data-tab="h2h">H2H</button>
@@ -172,6 +173,16 @@
       <th data-k="american">Price</th><th data-k="fair">Fair%</th><th data-k="ev">EV</th>
       <th data-k="kelly">Stake</th>
     </tr></thead><tbody id="scanBody"></tbody></table>
+  </section>
+
+  <section id="sim" class="tab hide">
+    <p class="note" id="simNote"></p>
+    <table><thead><tr>
+      <th data-k="name">Player</th><th data-k="salary">Salary</th><th data-k="dk_points">Proj Pts</th>
+      <th data-k="optimal" title="% of simulated tournaments this player is in the optimal DK lineup">Optimal%</th>
+      <th data-k="own_large" title="Projected large-field (GPP) ownership">Own%</th>
+      <th data-k="leverage" title="Optimal% − Ownership%. Positive = under-owned vs. how often the model wants him">Leverage</th>
+    </tr></thead><tbody id="simBody"></tbody></table>
   </section>
 
   <section id="h2h" class="tab hide">
@@ -251,6 +262,23 @@ function renderScan(){
       <td class="dim">${r.kelly==null?'—':(r.kelly*100).toFixed(2)+'%'}</td></tr>`);
   }
 }
+function renderSim(){
+  markHeader("sim");
+  const rows=sortRows(STATE.sim||[], SORT.sim || {key:"optimal", dir:-1});
+  $("#simNote").innerHTML="<b>Optimal%</b> = share of simulated tournaments this player is in the "+
+    "optimal DK lineup (6 golfers, $50K cap). <b>Leverage</b> = Optimal% − projected Ownership%: "+
+    "positive (green) = the model wants him more than the field is rostering him — your GPP edge.";
+  const b=$("#simBody"); b.innerHTML="";
+  for(const r of rows.slice(0,60)){
+    const lev=r.leverage;
+    b.insertAdjacentHTML("beforeend",`<tr>
+      <td>${r.name}${tag(r.src)}</td><td>${money(r.salary)}</td>
+      <td class="dim">${r.dk_points==null?'—':r.dk_points.toFixed(1)}</td>
+      <td class="pos">${r.optimal.toFixed(1)}%</td>
+      <td class="dim">${r.own_large==null?'—':r.own_large.toFixed(1)+'%'}</td>
+      <td class="${lev==null?'dim':(lev>0?'pos':'neg')}">${lev==null?'—':(lev>0?'+':'')+lev.toFixed(1)}</td></tr>`);
+  }
+}
 let H2H_REF="sharp", H2H_EST=false;
 function h2hRows(){
   const [evk,fairk]=SCAN_KEYS[H2H_REF];
@@ -278,7 +306,7 @@ function renderH2H(){
       <td class="dim">${r.kelly==null?'—':(r.kelly*100).toFixed(2)+'%'}</td></tr>`);
   }
 }
-const RENDER={proj:renderProj, sg:renderSG, dfs:renderDFS, plays:renderPlays, scan:renderScan, h2h:renderH2H,
+const RENDER={proj:renderProj, sg:renderSG, dfs:renderDFS, sim:renderSim, plays:renderPlays, scan:renderScan, h2h:renderH2H,
               board:renderBoard, move:renderMove};
 function sortRows(rows, s){
   if(!s || !s.key) return rows;
@@ -316,6 +344,9 @@ const EXPORT={
     ["top_20","Top20"],["make_cut","Cut"],["src","Source"]]}),
   scan:()=>({rows:scanRows(), cols:[["player","Player"],["market","Market"],["source","Book"],
     ["american","Price"],["fair","Fair"],["ev","EV"],["kelly","Kelly"]]}),
+  sim:()=>({rows:sortRows(STATE.sim||[],SORT.sim||{key:"optimal",dir:-1}), cols:[["name","Player"],
+    ["salary","Salary"],["dk_points","ProjPts"],["optimal","Optimal_pct"],
+    ["own_large","Own_pct"],["leverage","Leverage"]]}),
   h2h:()=>({rows:h2hRows(), cols:[["player","Bet"],["opponent","vs"],["book","Book"],
     ["american","Price"],["fair","Fair"],["ev","EV"],["kelly","Kelly"]]}),
   plays:()=>{let rows=STATE.plays[MKT]||[]; if(CLEAN)rows=rows.filter(p=>!p.estimated);
@@ -475,7 +506,7 @@ function renderAll(){
     cel.style.color = "var(--dim)";
   }
   if(pull){ pull.disabled=false; pull.textContent="⤓ Pull live odds"; pull.title="Refresh odds from DataGolf (unmetered)"; }
-  renderProj(); renderSG(); renderDFS(); renderPlays(); renderScan(); renderH2H(); renderBoard(); renderMove();
+  renderProj(); renderSG(); renderDFS(); renderSim(); renderPlays(); renderScan(); renderH2H(); renderBoard(); renderMove();
 }
 function curTab(){return $("nav button.on").dataset.tab;}
 async function load(refresh){

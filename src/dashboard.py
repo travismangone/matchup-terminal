@@ -189,6 +189,28 @@ def build_state(demo: bool = False) -> dict:
     dfs = [d for d in dfs if d["salary"]]      # DFS view = rosterable players only
     dfs.sort(key=lambda d: (d["value"] or 0), reverse=True)
 
+    # Sim / optimal-lineup exposure: % of sims each player is in the optimal DK
+    # lineup, vs. projected ownership -> leverage.
+    sim_rows = []
+    if not demo:
+        salaries = {p.name: sal_by[p.name]["salary"]
+                    for p in players if sal_by.get(p.name)}
+        from . import optimal
+        exposure = optimal.compute(skills_map, salaries)
+        dfs_by = {d["name"]: d for d in dfs}
+        for name, opt in exposure.items():
+            d = dfs_by.get(name, {})
+            own = d.get("own_large")
+            sim_rows.append({
+                "name": name, "salary": d.get("salary"),
+                "dk_points": d.get("dk_points"), "value": d.get("value"),
+                "optimal": round(opt * 100, 1),
+                "own_large": own,
+                "leverage": round(opt * 100 - own, 1) if own is not None else None,
+                "src": d.get("src", "PGA"),
+            })
+        sim_rows.sort(key=lambda r: r["optimal"], reverse=True)
+
     # Best plays, grouped by market.
     plays = find_plays(quotes, model_probs, skill_flags=flags_by)
     plays_by_market: dict[str, list] = {m: [] for m in MARKETS}
@@ -223,6 +245,7 @@ def build_state(demo: bool = False) -> dict:
         "skills": skills,
         "projections": projections,
         "dfs": dfs,
+        "sim": sim_rows,
         "plays": plays_by_market,
         "ev_scan": ev_scan,
         "h2h": h2h,
