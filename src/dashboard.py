@@ -103,6 +103,8 @@ def build_state(demo: bool = False) -> dict:
     from . import dk
     dk_sal = {} if demo else dk.load()
     dk_idx = dk.index(dk_sal) if dk_sal else None
+    own_map = {} if demo else dk.load_ownership()      # projected GPP ownership
+    own_idx = dk.index(own_map) if own_map else None
     if demo:
         players = datagolf.synthetic_field()
     else:
@@ -168,6 +170,7 @@ def build_state(demo: bool = False) -> dict:
         # (e.g. 86 for a mini-tour player) — suppress it for no-data players so it
         # doesn't read as a real projection, matching their blanked BoB%/Bogey%.
         dkppg = None if src == "none" else (s["dkppg"] if s else None)
+        o = dk.lookup(r["name"], own_map, own_idx) if own_idx else None
         dfs.append({
             "name": r["name"],
             "salary": salary,
@@ -175,6 +178,8 @@ def build_state(demo: bool = False) -> dict:
             "dk_placement": round(r["dk_placement"], 1),
             "dk_scoring": round(r["dk_scoring"], 1),
             "value": round(pts / (salary / 1000.0), 2) if salary else None,
+            "own_large": o["own_large"] if o else None,   # GPP (large-field) ownership %
+            "own_small": o["own_small"] if o else None,
             "dkppg": dkppg,
             "birdie_pct": getattr(pl_by.get(r["name"]), "birdie_pct", None),
             "bogey_pct": getattr(pl_by.get(r["name"]), "bogey_pct", None),

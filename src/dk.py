@@ -38,6 +38,34 @@ def load(path: str | None = None) -> dict[str, dict]:
     return out
 
 
+DEFAULT_PROJ = os.path.join(DATA, "dk_projections.csv")
+
+
+def load_ownership(path: str | None = None) -> dict[str, dict]:
+    """{normalized_name: {own_large, own_small}} — projected GPP ownership %."""
+    path = path or DEFAULT_PROJ
+    out: dict[str, dict] = {}
+    if not os.path.exists(path):
+        return out
+    with open(path, newline="") as f:
+        for row in csv.DictReader(f):
+            name = (row.get("Golfer") or "").strip()
+            if not name:
+                continue
+            out[normalize_name(name)] = {
+                "own_large": _pct(row.get("Large Field Own")),
+                "own_small": _pct(row.get("Small Field Own")),
+            }
+    return out
+
+
+def _pct(v):
+    try:
+        return float(str(v).replace("%", "").strip())
+    except (TypeError, ValueError):
+        return None
+
+
 def pool_names(path: str | None = None) -> list[str]:
     """Canonical DK display names — the DFS field."""
     return [v["name"] for v in load(path).values()]

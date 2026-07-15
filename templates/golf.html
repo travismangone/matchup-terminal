@@ -122,6 +122,7 @@
       <th data-k="name">Player</th><th data-k="salary">Salary</th><th data-k="dk_points">Proj Pts</th>
       <th data-k="dk_placement">Place</th><th data-k="dk_scoring">Score</th>
       <th data-k="value">Value</th>
+      <th data-k="own_large" title="Projected large-field (GPP) ownership %">Own%</th>
       <th data-k="birdie_pct" title="Birdie-or-Better % — GPP ceiling">BoB%</th>
       <th data-k="bogey_pct" title="Bogey Avoidance — lower = safer floor (cash)">Bogey%</th>
       <th data-k="dkppg">DK PPG</th><th data-k="win">Win</th>
@@ -310,6 +311,7 @@ const EXPORT={
     ["links","Links"],["birdie_pct","BoB_pct"],["bogey_pct","Bogey_pct"],["src","Source"]]}),
   dfs:()=>({rows:sortRows(STATE.dfs,SORT.dfs), cols:[["name","Player"],["salary","Salary"],
     ["dk_points","ProjPts"],["dk_placement","Place"],["dk_scoring","Score"],["value","Value"],
+    ["own_large","LargeFieldOwn_pct"],["own_small","SmallFieldOwn_pct"],
     ["birdie_pct","BoB_pct"],["bogey_pct","Bogey_pct"],["dkppg","DKPPG"],["win","Win"],
     ["top_20","Top20"],["make_cut","Cut"],["src","Source"]]}),
   scan:()=>({rows:scanRows(), cols:[["player","Player"],["market","Market"],["source","Book"],
@@ -365,6 +367,7 @@ function renderDFS(){
       <td>${r.dk_points.toFixed(1)}</td>
       <td class="dim">${r.dk_placement.toFixed(1)}</td><td class="dim">${r.dk_scoring.toFixed(1)}</td>
       <td class="${r.value>=0.5?'pos':''}">${r.value==null?'—':r.value.toFixed(2)}</td>
+      <td>${r.own_large==null?'—':r.own_large.toFixed(1)+'%'}</td>
       <td>${r.birdie_pct==null?'—':r.birdie_pct.toFixed(1)}</td>
       <td class="dim">${r.bogey_pct==null?'—':r.bogey_pct.toFixed(1)}</td>
       <td class="dim">${r.dkppg==null?'—':r.dkppg.toFixed(1)}</td>

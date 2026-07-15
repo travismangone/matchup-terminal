@@ -112,6 +112,10 @@ PLACEMENT_MARKETS = ["win", "top_5", "top_10", "top_20", "make_cut"]
 # Slate salaries CSV (copied from the DK export). Repoint per slate.
 DK_SALARIES_PATH = "data/dk_salaries.csv"
 
+# DFS projections/ownership export (has Large/Small Field ownership per golfer).
+# Repoint per slate; drop the new CSV in and the ownership column updates.
+DK_PROJECTIONS_PATH = "data/dk_projections.csv"
+
 # DK golf finish-placement points by finishing position (1-indexed). This is the
 # placement component of DK scoring — the part the sim can derive. Hole-by-hole
 # birdie/streak/bonus points aren't modeled (no hole-level sim), so projected
