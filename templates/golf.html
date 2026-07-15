@@ -101,6 +101,7 @@
   <button data-tab="dfs">DFS Value</button>
   <button data-tab="plays">Best Plays</button>
   <button data-tab="scan">EV Scanner</button>
+  <button data-tab="h2h">H2H</button>
   <button data-tab="board">Winner Board</button>
   <button data-tab="move">Line Movement</button>
 </nav>
@@ -172,6 +173,25 @@
     </tr></thead><tbody id="scanBody"></tbody></table>
   </section>
 
+  <section id="h2h" class="tab hide">
+    <div class="row">
+      <div class="chips">
+        <span class="dim" style="margin-right:6px">grade vs</span>
+        <span class="chip on" data-ref="sharp">FanDuel/Pinnacle (sharp)</span>
+        <span class="chip" data-ref="model">Model</span>
+        <span class="chip" data-ref="blend">Blend</span>
+      </div>
+      <label class="ck">min EV <input type="number" id="h2hMin" value="1" step="0.5" style="width:56px"> %</label>
+      <label class="ck"><input type="checkbox" id="h2hEst"> include estimated players</label>
+    </div>
+    <p class="note" id="h2hNote"></p>
+    <table><thead><tr>
+      <th data-k="player">Bet</th><th data-k="opponent">vs</th><th data-k="book">Book</th>
+      <th data-k="american">Price</th><th data-k="fair">Fair%</th><th data-k="ev">EV</th>
+      <th data-k="kelly">Stake</th>
+    </tr></thead><tbody id="h2hBody"></tbody></table>
+  </section>
+
   <section id="board" class="tab hide">
     <p class="note">Sharp (<span id="sharpLabel"></span>) no-vig win line vs. best price elsewhere. Prediction-market edges are liquidity-capped.</p>
     <table><thead><tr>
@@ -230,7 +250,34 @@ function renderScan(){
       <td class="dim">${r.kelly==null?'—':(r.kelly*100).toFixed(2)+'%'}</td></tr>`);
   }
 }
-const RENDER={proj:renderProj, sg:renderSG, dfs:renderDFS, plays:renderPlays, scan:renderScan,
+let H2H_REF="sharp", H2H_EST=false;
+function h2hRows(){
+  const [evk,fairk]=SCAN_KEYS[H2H_REF];
+  const min=(parseFloat($("#h2hMin").value)||0)/100;
+  let rows=(STATE.h2h||[]).map(r=>({...r, ev:r[evk], fair:r[fairk]}))
+    .filter(r=>r.ev!=null && r.ev>=min)
+    .filter(r=>H2H_EST || !r.estimated);
+  return sortRows(rows, SORT.h2h || {key:"ev", dir:-1});
+}
+function renderH2H(){
+  markHeader("h2h");
+  const rows=h2hRows();
+  const desc={sharp:"A soft book paying better than the FanDuel/Pinnacle matchup line — Pinnacle is the sharpest matchup market, so these are the trustworthy edges.",
+    model:"Our model's P(A beats B) from the skill gap vs the book price — model-dependent, wider set.",
+    blend:"Model + sharp blended."}[H2H_REF];
+  $("#h2hNote").innerHTML=`<b>${rows.length}</b> +EV matchups vs ${H2H_REF==='sharp'?'FanDuel/Pinnacle':H2H_REF} ≥ ${$('#h2hMin').value}%. ${desc}`;
+  const b=$("#h2hBody"); b.innerHTML="";
+  for(const r of rows.slice(0,150)){
+    b.insertAdjacentHTML("beforeend",`<tr>
+      <td>${r.player}${r.estimated?' <span class="tag owgr">est</span>':''}</td>
+      <td class="dim">${r.opponent}</td><td>${r.book}</td>
+      <td>${r.american>=0?'+':''}${r.american}</td>
+      <td class="dim">${r.fair==null?'—':(r.fair*100).toFixed(0)+'%'}</td>
+      <td class="pos">${(r.ev*100).toFixed(1)}%</td>
+      <td class="dim">${r.kelly==null?'—':(r.kelly*100).toFixed(2)+'%'}</td></tr>`);
+  }
+}
+const RENDER={proj:renderProj, sg:renderSG, dfs:renderDFS, plays:renderPlays, scan:renderScan, h2h:renderH2H,
               board:renderBoard, move:renderMove};
 function sortRows(rows, s){
   if(!s || !s.key) return rows;
@@ -266,6 +313,8 @@ const EXPORT={
     ["birdie_pct","BoB_pct"],["bogey_pct","Bogey_pct"],["dkppg","DKPPG"],["win","Win"],
     ["top_20","Top20"],["make_cut","Cut"],["src","Source"]]}),
   scan:()=>({rows:scanRows(), cols:[["player","Player"],["market","Market"],["source","Book"],
+    ["american","Price"],["fair","Fair"],["ev","EV"],["kelly","Kelly"]]}),
+  h2h:()=>({rows:h2hRows(), cols:[["player","Bet"],["opponent","vs"],["book","Book"],
     ["american","Price"],["fair","Fair"],["ev","EV"],["kelly","Kelly"]]}),
   plays:()=>{let rows=STATE.plays[MKT]||[]; if(CLEAN)rows=rows.filter(p=>!p.estimated);
     return {rows:sortRows(rows,SORT.plays), cols:[["player","Player"],["market","Market"],
@@ -423,7 +472,7 @@ function renderAll(){
     cel.style.color = "var(--dim)";
   }
   if(pull){ pull.disabled=false; pull.textContent="⤓ Pull live odds"; pull.title="Refresh odds from DataGolf (unmetered)"; }
-  renderProj(); renderSG(); renderDFS(); renderPlays(); renderScan(); renderBoard(); renderMove();
+  renderProj(); renderSG(); renderDFS(); renderPlays(); renderScan(); renderH2H(); renderBoard(); renderMove();
 }
 function curTab(){return $("nav button.on").dataset.tab;}
 async function load(refresh){
@@ -450,6 +499,13 @@ $$('#scan .chip[data-ref]').forEach(c=>c.onclick=()=>{
 });
 $("#scanMin").oninput=renderScan;
 $("#scanEst").onchange=e=>{SCAN_EST=e.target.checked;renderScan();};
+$$('#h2h .chip[data-ref]').forEach(c=>c.onclick=()=>{
+  H2H_REF=c.dataset.ref; SORT.h2h=null;
+  $$('#h2h .chip[data-ref]').forEach(x=>x.classList.toggle('on',x===c));
+  renderH2H();
+});
+$("#h2hMin").oninput=renderH2H;
+$("#h2hEst").onchange=e=>{H2H_EST=e.target.checked;renderH2H();};
 $("#refresh")?.addEventListener("click",()=>load(true));   // absent in view-only
 const _pull=$("#pull");
 if(_pull) _pull.onclick=async()=>{

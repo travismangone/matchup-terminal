@@ -202,3 +202,73 @@ def scan_ev(quotes: list[Quote],
     rows.sort(key=lambda r: (r["ev_sharp"] if r["ev_sharp"] is not None else r["ev_model"] or 0),
               reverse=True)
     return rows
+
+
+# --------------------------------------------------------------------------
+# Head-to-head (tournament matchup) edges. For each matchup p1-vs-p2 we get a
+# fair P(p1 beats p2) two ways: our MODEL (closed-form from the skill gap over 4
+# rounds) and the SHARP books (2-way de-vig of FanDuel/Pinnacle). Then grade
+# every soft book's price on each side vs sharp / model / blend.
+# --------------------------------------------------------------------------
+import math as _math
+
+
+def _norm_cdf(x: float) -> float:
+    return 0.5 * (1.0 + _math.erf(x / _math.sqrt(2.0)))
+
+
+def scan_matchups(matchups: list[dict], skills: dict[str, float],
+                  sigma: float) -> list[dict]:
+    """P(p1 beats p2) ≈ Φ(√2·Δskill/σ): over 4 rounds the SG-total gap is
+    N(4·Δskill, 8σ²), so P(gap>0) = Φ(√2·Δskill/σ). Approximate (ignores the cut),
+    but a solid read for finding matchup edges."""
+    coef = _math.sqrt(2.0) / sigma if sigma else 0.0
+    rows: list[dict] = []
+    for m in matchups:
+        p1, p2 = m["p1"], m["p2"]
+        s1, s2 = skills.get(p1), skills.get(p2)
+        model_p1 = _norm_cdf(coef * (s1 - s2)) if (s1 is not None and s2 is not None) else None
+
+        # Sharp fair P(p1) — 2-way de-vig of each sharp book present, averaged.
+        sv = []
+        for b in SHARP_BOOKS:
+            d = m["books"].get(b)
+            if d:
+                i1, i2 = 1.0 / d["p1"], 1.0 / d["p2"]
+                sv.append(i1 / (i1 + i2))
+        sharp_p1 = sum(sv) / len(sv) if sv else None
+
+        if model_p1 is not None and sharp_p1 is not None:
+            blend_p1 = MODEL_BLEND * model_p1 + (1 - MODEL_BLEND) * sharp_p1
+        else:
+            blend_p1 = model_p1 if model_p1 is not None else sharp_p1
+
+        for book, d in m["books"].items():
+            if book in SHARP_BOOKS:
+                continue
+            for side, dec, mp, sp, bp in (
+                ("p1", d["p1"], model_p1, sharp_p1, blend_p1),
+                ("p2", d["p2"],
+                 (1 - model_p1) if model_p1 is not None else None,
+                 (1 - sharp_p1) if sharp_p1 is not None else None,
+                 (1 - blend_p1) if blend_p1 is not None else None),
+            ):
+                ev_sharp = expected_value(sp, dec) if sp else None
+                ev_model = expected_value(mp, dec) if mp else None
+                ev_blend = expected_value(bp, dec) if bp else None
+                best = max([e for e in (ev_sharp, ev_model, ev_blend) if e is not None],
+                           default=None)
+                if best is None or best <= 0:
+                    continue
+                rows.append({
+                    "player": p1 if side == "p1" else p2,
+                    "opponent": p2 if side == "p1" else p1,
+                    "book": book, "american": decimal_to_american(dec),
+                    "model_fair": mp, "sharp_fair": sp, "blend_fair": bp,
+                    "ev_sharp": ev_sharp, "ev_model": ev_model, "ev_blend": ev_blend,
+                    "kelly": (kelly_fraction(sp, dec) * KELLY_MULTIPLIER if sp
+                              else (kelly_fraction(bp, dec) * KELLY_MULTIPLIER if bp else None)),
+                })
+    rows.sort(key=lambda r: (r["ev_sharp"] if r["ev_sharp"] is not None else r["ev_model"] or 0),
+              reverse=True)
+    return rows

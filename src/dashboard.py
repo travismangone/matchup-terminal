@@ -6,14 +6,33 @@ dict for the web UI. Reads the store (no API pull, so it's fast and free); the
 
 from __future__ import annotations
 
+import json
+import os
 from dataclasses import asdict
 
 from . import store, free_sg, course_fit, simulate, datagolf
 from .course_fit import adjusted_skill, skill_breakdown
-from .compare import find_plays, sharp_reference, scan_ev
+from .compare import find_plays, sharp_reference, scan_ev, scan_matchups
 from .clv import line_movement
 from .odds_math import decimal_to_american, prob_to_decimal, expected_value
-from config import SHARP_BOOKS, EVENT
+from config import SHARP_BOOKS, EVENT, SIM
+
+_MATCHUPS_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)),
+                              "data", "matchups.json")
+
+
+def _save_matchups(mus: list) -> None:
+    os.makedirs(os.path.dirname(_MATCHUPS_PATH), exist_ok=True)
+    with open(_MATCHUPS_PATH, "w") as f:
+        json.dump(mus, f)
+
+
+def _load_matchups() -> list:
+    try:
+        with open(_MATCHUPS_PATH) as f:
+            return json.load(f)
+    except Exception:
+        return []
 
 MARKETS = ["win", "top_5", "top_10", "top_20", "make_cut"]
 
@@ -22,7 +41,7 @@ def pull_and_snapshot() -> str:
     """Live pull -> store. Sportsbooks (incl. FanDuel + Pinnacle) come from
     DataGolf, which is flat-rate (no per-pull credits) and lists an event's odds
     1-2 weeks out. Prediction markets from Kalshi/Polymarket. Returns run ts."""
-    from .odds import datagolf_odds, polymarket, kalshi
+    from .odds import datagolf_odds, polymarket, kalshi, datagolf_matchups
     from .match import build_index
     from . import dk
     from config import POLYMARKET_TITLE_CONTAINS, KALSHI_EVENTS
@@ -38,6 +57,11 @@ def pull_and_snapshot() -> str:
     sb = datagolf_odds.fetch_winner_quotes(idx)      # FanDuel + Pinnacle + 12 more
     pm = polymarket.fetch_winner_quotes(idx, POLYMARKET_TITLE_CONTAINS)
     kq = kalshi.fetch_quotes(idx, KALSHI_EVENTS)
+    # Head-to-head matchups are pairwise -> own file, not the per-player line store.
+    try:
+        _save_matchups(datagolf_matchups.fetch_matchups(idx))
+    except Exception as e:
+        print(f"[warn] matchups save failed: {e}")
     return store.snapshot(sb + pm + kq)
 
 
@@ -96,7 +120,8 @@ def build_state(demo: bool = False) -> dict:
     pl_by = {p.name: p for p in players}
 
     flags_by = {p.name: p.flags for p in players}
-    sim = simulate.simulate(course_fit.build_skills(players))
+    skills_map = course_fit.build_skills(players)
+    sim = simulate.simulate(skills_map)
     rows = sim.as_dicts()
     model_probs = {m: {r["name"]: r[m] for r in rows} for m in MARKETS}
 
@@ -174,6 +199,14 @@ def build_state(demo: bool = False) -> dict:
         r["estimated"] = bool(_ESTIMATED & set(flags_by.get(r["player"], [])))
     ev_scan = ev_scan[:250]
 
+    # Head-to-head matchup edges (P(A beats B) from the skill gap vs the books).
+    sigma = SIM["round_sigma"] * SIM["wind_factor"]
+    h2h = scan_matchups(_load_matchups(), skills_map, sigma)
+    for r in h2h:
+        r["estimated"] = bool(_ESTIMATED & (set(flags_by.get(r["player"], [])) |
+                                            set(flags_by.get(r["opponent"], []))))
+    h2h = h2h[:200]
+
     return {
         "empty": False,
         "event": EVENT["name"],
@@ -187,6 +220,7 @@ def build_state(demo: bool = False) -> dict:
         "dfs": dfs,
         "plays": plays_by_market,
         "ev_scan": ev_scan,
+        "h2h": h2h,
         "board": _board(win_q),
         "movement": _movement(demo),
         "sharp_label": " + ".join(b.replace("_", " ").title() for b in SHARP_BOOKS),
