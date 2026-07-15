@@ -40,7 +40,9 @@ except Exception:
     pass
 
 # View-only hides the credit-spending "Pull" button for terminal viewers.
-VIEW_ONLY = os.environ.get("VIEW_ONLY", "0") == "1"
+# Secure-by-default for the shared terminal: view-only (pull button hidden +
+# blocked) unless explicitly turned off (VIEW_ONLY=0 for local dev).
+VIEW_ONLY = os.environ.get("VIEW_ONLY", "1") == "1"
 
 try:
     from src import dashboard as golf_dashboard
@@ -251,29 +253,60 @@ def golf_healthz():
 # file, unlike a separate Render cron). Opt-in via GOLF_REFRESH_MINUTES; every
 # tick is gated by the CreditGuard so spend stays capped and predictable.
 # -----------------------------------------------------------------------------
-GOLF_REFRESH_MINUTES = int(os.environ.get("GOLF_REFRESH_MINUTES", "0"))  # 0 = off
+GOLF_REFRESH_MINUTES = int(os.environ.get("GOLF_REFRESH_MINUTES", "60"))  # 0 = off
+
+
+def _golf_snapshot_age_min():
+    """Minutes since the newest odds snapshot, or None if there are none."""
+    try:
+        from datetime import datetime, timezone
+        from src import store
+        run = store.closing_run()
+        if not run:
+            return None
+        return (datetime.now(timezone.utc) -
+                datetime.fromisoformat(run)).total_seconds() / 60.0
+    except Exception:
+        return None
+
+
+def _golf_pull_once(reason: str) -> None:
+    from src.credit_guard import CreditGuard
+    blocked = CreditGuard().blocked_reason()
+    if blocked:
+        log.info("golf pull skipped (%s) — credit guard: %s", reason, blocked)
+        return
+    ts = golf_dashboard.pull_and_snapshot()
+    _golf_state(rebuild=True)
+    log.info("golf pull (%s): snapshot %s", reason, ts)
 
 
 def _golf_refresh_loop() -> None:
     import time
-    from src.credit_guard import CreditGuard
+    # Boot pull: refresh ~30s after startup so every deploy gets fresh odds —
+    # but SKIP if the latest snapshot is still within the refresh window, so
+    # frequent Render cold-starts don't re-spend credits. Guard caps it anyway.
+    time.sleep(30)
+    age = _golf_snapshot_age_min()
+    if age is None or age >= GOLF_REFRESH_MINUTES:
+        try:
+            _golf_pull_once("boot")
+        except Exception as e:
+            log.warning("golf boot pull failed: %s", e)
+    else:
+        log.info("golf boot pull skipped — snapshot only %.0f min old", age)
+    # Then refresh on the interval.
     while True:
         time.sleep(GOLF_REFRESH_MINUTES * 60)
         try:
-            blocked = CreditGuard().blocked_reason()
-            if blocked:
-                log.info("golf auto-refresh skipped — credit guard: %s", blocked)
-                continue
-            ts = golf_dashboard.pull_and_snapshot()
-            _golf_state(rebuild=True)
-            log.info("golf auto-refresh: snapshot %s", ts)
+            _golf_pull_once("scheduled")
         except Exception as e:
             log.warning("golf auto-refresh failed: %s", e)
 
 
 if _GOLF_OK and GOLF_REFRESH_MINUTES > 0:
     threading.Thread(target=_golf_refresh_loop, daemon=True).start()
-    log.info("golf auto-refresh every %d min", GOLF_REFRESH_MINUTES)
+    log.info("golf auto-refresh every %d min (+ boot pull)", GOLF_REFRESH_MINUTES)
 
 
 # -----------------------------------------------------------------------------
