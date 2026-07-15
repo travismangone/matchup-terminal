@@ -127,10 +127,12 @@ DK_PLACEMENT_POINTS = (
 # Hole-scoring component (birdies/pars/bogeys + streak/bogey-free bonuses). We
 # can't sim hole-by-hole, so we map each simulated round's SG:Total to expected
 # DK scoring points: pts/round = base + slope·(round SG), clamped. Only rounds
-# actually played count (2 if the sim misses the cut, 4 if it advances), so it's
-# self-consistent. Constants calibrated so projected totals track DK's own
-# AvgPointsPerGame — e.g. an elite +2.7-SG player lands ~22/round → ~100 total.
-DK_SCORING = {"base": 14.0, "slope": 3.0, "floor": 2.0, "cap": 30.0}
+# actually played count (2 if the sim misses the cut, 4 if it advances).
+# Anchored to two points — elite +2.7-SG ≈ 21/rd, a replacement −2.8-SG ≈ 2.5/rd
+# — so bad players don't get propped up (the old base=14/floor=2 handed a club
+# pro ~18 pts for shooting +5). A low floor lets ugly rounds score near zero.
+# Preserves the ~0.77 correlation with DK's own AvgPointsPerGame.
+DK_SCORING = {"base": 11.5, "slope": 3.6, "floor": -3.0, "cap": 30.0}
 
 # --------------------------------------------------------------------------
 # Odds comparison
