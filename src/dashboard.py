@@ -249,10 +249,13 @@ def _movement(demo) -> dict:
     o, c = store.opening_run(demo), store.closing_run(demo)
     return {
         "open_run": o, "close_run": c, "single": (o == c),
+        # Full field (every golfer with a sharp line at both open + close), sorted
+        # by biggest mover. The table is sortable, so you can find any player or
+        # rank by steam/drift — no 40-row cap.
         "rows": [{
             "name": m.player,
             "open_american": m.open_american, "close_american": m.close_american,
             "open_prob": m.open_prob, "close_prob": m.close_prob,
             "delta": m.delta_prob,
-        } for m in rows if m.delta_prob is not None][:40],
+        } for m in rows if m.delta_prob is not None],
     }
