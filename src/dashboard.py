@@ -144,6 +144,11 @@ def build_state(demo: bool = False) -> dict:
         s = sal_by.get(r["name"])
         salary = s["salary"] if s else None
         pts = r["dk_points"]
+        src = _skill_source(flags_by.get(r["name"], []))
+        # DK's own PPG is a garbage placeholder for un-rated club pros / amateurs
+        # (e.g. 86 for a mini-tour player) — suppress it for no-data players so it
+        # doesn't read as a real projection, matching their blanked BoB%/Bogey%.
+        dkppg = None if src == "none" else (s["dkppg"] if s else None)
         dfs.append({
             "name": r["name"],
             "salary": salary,
@@ -151,11 +156,11 @@ def build_state(demo: bool = False) -> dict:
             "dk_placement": round(r["dk_placement"], 1),
             "dk_scoring": round(r["dk_scoring"], 1),
             "value": round(pts / (salary / 1000.0), 2) if salary else None,
-            "dkppg": s["dkppg"] if s else None,
+            "dkppg": dkppg,
             "birdie_pct": getattr(pl_by.get(r["name"]), "birdie_pct", None),
             "bogey_pct": getattr(pl_by.get(r["name"]), "bogey_pct", None),
             "win": r["win"], "top_20": r["top_20"], "make_cut": r["make_cut"],
-            "src": _skill_source(flags_by.get(r["name"], [])),
+            "src": src,
         })
     dfs = [d for d in dfs if d["salary"]]      # DFS view = rosterable players only
     dfs.sort(key=lambda d: (d["value"] or 0), reverse=True)
