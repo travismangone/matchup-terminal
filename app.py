@@ -30,6 +30,35 @@ from flask import Flask, jsonify, render_template, request
 import matchup_tool
 
 # -----------------------------------------------------------------------------
+# Golf Open model (second tab). Fully self-contained; the guarded import + the
+# per-route try/except mean a golf problem NEVER touches the baseball engine.
+# -----------------------------------------------------------------------------
+try:
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))  # no-op on Render
+except Exception:
+    pass
+
+# View-only hides the credit-spending "Pull" button for terminal viewers.
+VIEW_ONLY = os.environ.get("VIEW_ONLY", "0") == "1"
+
+try:
+    from src import dashboard as golf_dashboard
+    _GOLF_OK = True
+except Exception as _golf_err:            # missing deps/keys -> tab degrades gracefully
+    golf_dashboard = None
+    _GOLF_OK = False
+
+_golf_cache: dict = {}
+
+
+def _golf_state(rebuild: bool = False) -> dict:
+    if rebuild or "state" not in _golf_cache:
+        _golf_cache["state"] = golf_dashboard.build_state(False)
+    return _golf_cache["state"]
+
+
+# -----------------------------------------------------------------------------
 # Logging
 # -----------------------------------------------------------------------------
 
@@ -166,6 +195,85 @@ def cancel():
 @app.route("/healthz")
 def healthz():
     return jsonify({"ok": True})
+
+
+# -----------------------------------------------------------------------------
+# Golf tab routes
+# -----------------------------------------------------------------------------
+
+@app.route("/golf")
+def golf_index():
+    return render_template("golf.html", view_only=VIEW_ONLY)
+
+
+@app.route("/golf/api/state")
+def golf_api_state():
+    if not _GOLF_OK:
+        return jsonify({"empty": True, "error": "golf module not loaded"})
+    try:
+        return jsonify(_golf_state(request.args.get("refresh") == "1"))
+    except Exception as e:
+        log.exception("golf state failed")
+        return jsonify({"empty": True, "error": str(e)})
+
+
+@app.route("/golf/api/pull", methods=["POST"])
+def golf_api_pull():
+    if VIEW_ONLY:
+        return jsonify({"ok": False, "error": "pull disabled (view-only terminal)"}), 403
+    if not _GOLF_OK:
+        return jsonify({"ok": False, "error": "golf module not loaded"}), 500
+    try:
+        ts = golf_dashboard.pull_and_snapshot()   # credit-guarded
+        _golf_state(rebuild=True)
+        return jsonify({"ok": True, "run": ts})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/golf/healthz")
+def golf_healthz():
+    """Uptime probe for the golf tab. 200 healthy, 503 if the module didn't load."""
+    state = _golf_cache.get("state") or {}
+    body = {
+        "ok": _GOLF_OK,
+        "module_loaded": _GOLF_OK,
+        "state_cached": "state" in _golf_cache,
+        "run": state.get("run"),
+        "view_only": VIEW_ONLY,
+        "auto_refresh_min": GOLF_REFRESH_MINUTES,
+    }
+    return jsonify(body), (200 if _GOLF_OK else 503)
+
+
+# -----------------------------------------------------------------------------
+# Credit-safe auto-refresh — runs IN the web container (shares the snapshot
+# file, unlike a separate Render cron). Opt-in via GOLF_REFRESH_MINUTES; every
+# tick is gated by the CreditGuard so spend stays capped and predictable.
+# -----------------------------------------------------------------------------
+GOLF_REFRESH_MINUTES = int(os.environ.get("GOLF_REFRESH_MINUTES", "0"))  # 0 = off
+
+
+def _golf_refresh_loop() -> None:
+    import time
+    from src.credit_guard import CreditGuard
+    while True:
+        time.sleep(GOLF_REFRESH_MINUTES * 60)
+        try:
+            blocked = CreditGuard().blocked_reason()
+            if blocked:
+                log.info("golf auto-refresh skipped — credit guard: %s", blocked)
+                continue
+            ts = golf_dashboard.pull_and_snapshot()
+            _golf_state(rebuild=True)
+            log.info("golf auto-refresh: snapshot %s", ts)
+        except Exception as e:
+            log.warning("golf auto-refresh failed: %s", e)
+
+
+if _GOLF_OK and GOLF_REFRESH_MINUTES > 0:
+    threading.Thread(target=_golf_refresh_loop, daemon=True).start()
+    log.info("golf auto-refresh every %d min", GOLF_REFRESH_MINUTES)
 
 
 # -----------------------------------------------------------------------------

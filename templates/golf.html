@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Open Championship Model</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2230; --line:#2a3140;
+    --txt:#e6edf3; --dim:#8b98a9; --accent:#3fb950; --accent2:#58a6ff;
+    --pos:#3fb950; --neg:#f85149; --warn:#d29922;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+    font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace;font-size:13px}
+  header{display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+    padding:14px 20px;background:var(--panel);border-bottom:1px solid var(--line)}
+  h1{font-size:15px;margin:0;font-weight:600;letter-spacing:.3px}
+  .sub{color:var(--dim);font-size:12px}
+  .badge{padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}
+  .badge.live{background:rgba(63,185,80,.15);color:var(--accent)}
+  .badge.demo{background:rgba(210,153,34,.15);color:var(--warn)}
+  .spacer{flex:1}
+  button{background:var(--panel2);color:var(--txt);border:1px solid var(--line);
+    padding:6px 12px;border-radius:6px;font:inherit;font-size:12px;cursor:pointer}
+  button:hover{border-color:var(--accent2)}
+  button.primary{background:rgba(88,166,255,.15);border-color:var(--accent2);color:var(--accent2)}
+  button:disabled{opacity:.5;cursor:wait}
+  nav{display:flex;gap:2px;padding:0 20px;background:var(--panel);border-bottom:1px solid var(--line)}
+  nav button{border:none;border-bottom:2px solid transparent;border-radius:0;background:none;
+    padding:10px 14px;color:var(--dim)}
+  nav button.on{color:var(--txt);border-bottom-color:var(--accent)}
+  main{padding:18px 20px;max-width:1250px}
+  .row{display:flex;gap:20px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+  .chips{display:flex;gap:6px;flex-wrap:wrap}
+  .chip{padding:5px 11px;border:1px solid var(--line);border-radius:14px;cursor:pointer;color:var(--dim)}
+  .chip.on{background:rgba(88,166,255,.12);border-color:var(--accent2);color:var(--accent2)}
+  label.ck{display:flex;align-items:center;gap:6px;color:var(--dim);cursor:pointer}
+  table{border-collapse:collapse;width:100%;font-size:12.5px}
+  th,td{padding:7px 10px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+  th:first-child,td:first-child{text-align:left}
+  th{color:var(--dim);font-weight:600;position:sticky;top:0;background:var(--bg);cursor:pointer;user-select:none}
+  th[data-k]:hover{color:var(--txt)}
+  th.sa::after{content:" ▴";color:var(--accent2)}
+  th.sd::after{content:" ▾";color:var(--accent2)}
+  tbody tr:hover{background:var(--panel2)}
+  .pos{color:var(--pos)} .neg{color:var(--neg)} .dim{color:var(--dim)}
+  .tag{font-size:10px;padding:1px 5px;border-radius:3px;margin-left:4px}
+  .tag.pga{background:rgba(63,185,80,.12);color:var(--accent)}
+  .tag.owgr{background:rgba(210,153,34,.15);color:var(--warn)}
+  .tag.none{background:rgba(248,81,73,.12);color:var(--neg)}
+  .tag.est{background:rgba(210,153,34,.15);color:var(--warn)}
+  .note{color:var(--dim);font-size:11.5px;margin:10px 0 0}
+  .hide{display:none}
+  tr.sgrow{cursor:pointer}
+  tr.sgrow td:first-child::before{content:"▸ ";color:var(--dim)}
+  tr.sgrow.open td:first-child::before{content:"▾ "}
+  tr.sgdetail td{background:var(--panel);padding:10px 34px}
+  .bd{display:flex;gap:22px;flex-wrap:wrap;align-items:center;font-size:12px}
+  .bd .lead{font-weight:600;margin-right:4px}
+  .bdi{display:flex;flex-direction:column;gap:4px;min-width:96px}
+  .bdi .lab{color:var(--dim);font-size:10px;text-transform:uppercase;letter-spacing:.4px}
+  .bdi .v{font-variant-numeric:tabular-nums;font-size:13px}
+  .bdbar{height:4px;background:var(--line);border-radius:2px;position:relative}
+  .bdbar i{position:absolute;top:0;height:100%;border-radius:2px}
+  .bdbar i.pos{background:var(--pos)} .bdbar i.neg{background:var(--neg)}
+  #loading{padding:40px 20px;color:var(--dim)}
+  .flags{color:var(--dim);font-size:11px}
+</style>
+<style>
+.term-nav{display:flex;gap:2px;padding:0 16px;background:#0d0f12;border-bottom:1px solid #23262b;
+  font:600 12.5px ui-monospace,SFMono-Regular,monospace;letter-spacing:.5px}
+.term-nav a{padding:11px 16px;color:#6b7280;text-decoration:none;border-bottom:2px solid transparent}
+.term-nav a:hover{color:#cbd5e1}
+.term-nav a.on{color:#e8a33d;border-bottom-color:#e8a33d}
+</style>
+</head>
+<body>
+<div class="term-nav">
+  <a href="/" class="{{ 'on' if request.path == '/' else '' }}">⚾ BASEBALL</a>
+  <a href="/golf" class="{{ 'on' if request.path.startswith('/golf') else '' }}">⛳ GOLF</a>
+</div>
+<header>
+  <div>
+    <h1 id="event">Loading…</h1>
+    <div class="sub"><span id="course"></span> · <span id="run" class="dim"></span></div>
+  </div>
+  <span id="mode" class="badge"></span>
+  <span id="cov" class="sub"></span>
+  <div class="spacer"></div>
+  <span id="credits" class="sub" title="Odds API credits (only sportsbook pulls cost)"></span>
+  <button id="export" title="Download the current tab as CSV">⭳ Export CSV</button>
+  {% if not view_only %}
+  <button id="refresh">↻ Recompute</button>
+  <button id="pull" class="primary" title="Spends Odds API credits">⤓ Pull live odds</button>
+  {% endif %}
+</header>
+<nav>
+  <button data-tab="proj" class="on">Projections</button>
+  <button data-tab="sg">Strokes Gained</button>
+  <button data-tab="dfs">DFS Value</button>
+  <button data-tab="plays">Best Plays</button>
+  <button data-tab="board">Winner Board</button>
+  <button data-tab="move">Line Movement</button>
+</nav>
+<main>
+  <div id="loading">Building model from the latest snapshot… (first load runs the sim, ~15s)</div>
+
+  <section id="proj" class="tab hide">
+    <p class="note">Model win / placement probabilities + DK salary. Skill source tag: PGA = measured strokes-gained, OWGR = ranking-estimated (discount — underrates LIV), none = replacement level.</p>
+    <table><thead><tr>
+      <th data-k="name">Player</th><th data-k="salary">Salary</th><th data-k="win">Win</th><th data-k="top_5">Top 5</th>
+      <th data-k="top_10">Top 10</th><th data-k="top_20">Top 20</th><th data-k="make_cut">Make Cut</th>
+    </tr></thead><tbody id="projBody"></tbody></table>
+  </section>
+
+  <section id="dfs" class="tab hide">
+    <p class="note" id="dfsNote"></p>
+    <table><thead><tr>
+      <th data-k="name">Player</th><th data-k="salary">Salary</th><th data-k="dk_points">Proj Pts</th>
+      <th data-k="dk_placement">Place</th><th data-k="dk_scoring">Score</th>
+      <th data-k="value">Value</th>
+      <th data-k="birdie_pct" title="Birdie-or-Better % — GPP ceiling">BoB%</th>
+      <th data-k="bogey_pct" title="Bogey Avoidance — lower = safer floor (cash)">Bogey%</th>
+      <th data-k="dkppg">DK PPG</th><th data-k="win">Win</th>
+      <th data-k="top_20">Top 20</th><th data-k="make_cut">Cut</th>
+    </tr></thead><tbody id="dfsBody"></tbody></table>
+  </section>
+
+  <section id="sg" class="tab hide">
+    <p class="note">Strokes-gained inputs that drive the sim, per round. <b>Skill</b> = course-fit adjusted SG (season SG + links + recent form applied) — the number the sim uses. <b>SG Tot</b> = raw season SG. <b>16r / 24r</b> = trailing recent-form SG over the last 16 / 24 rounds. <b>Links</b> = Open/Scottish finish aptitude (0.5 neutral). Source: PGA = measured, OWGR = estimated, none = replacement.</p>
+    <table><thead><tr>
+      <th data-k="name">Player</th><th data-k="adjusted">Skill</th><th data-k="sg_total">SG Tot</th>
+      <th data-k="form_16">16r</th><th data-k="form_24">24r</th>
+      <th data-k="sg_ott">OTT</th><th data-k="sg_app">APP</th><th data-k="sg_arg">ARG</th>
+      <th data-k="sg_putt">Putt</th><th data-k="driving_acc">Drv z</th><th data-k="links">Links</th>
+      <th data-k="birdie_pct" title="Birdie-or-Better % — ceiling/upside">BoB%</th>
+      <th data-k="bogey_pct" title="Bogey Avoidance — % holes bogey+; LOWER is better (floor)">Bogey%</th>
+    </tr></thead><tbody id="sgBody"></tbody></table>
+  </section>
+
+  <section id="plays" class="tab hide">
+    <div class="row">
+      <div class="chips" id="mktChips"></div>
+      <label class="ck"><input type="checkbox" id="cleanCk"> real-SG only (hide estimated)</label>
+    </div>
+    <table><thead><tr>
+      <th data-k="player">Player</th><th data-k="source">Book</th><th data-k="american">Price</th>
+      <th data-k="model_fair">Model</th><th data-k="sharp_fair">Sharp</th><th data-k="blend_fair">Blend</th>
+      <th data-k="edge">Edge</th><th data-k="kelly">Stake</th><th>Notes</th>
+    </tr></thead><tbody id="playsBody"></tbody></table>
+    <p class="note" id="playsNote"></p>
+  </section>
+
+  <section id="board" class="tab hide">
+    <p class="note">Sharp (<span id="sharpLabel"></span>) no-vig win line vs. best price elsewhere. Prediction-market edges are liquidity-capped.</p>
+    <table><thead><tr>
+      <th data-k="name">Player</th><th data-k="fair">Fair%</th><th data-k="fair_american">Fair</th>
+      <th data-k="best_american">Best elsewhere</th><th data-k="best_book">Book</th><th data-k="edge">Edge</th>
+    </tr></thead><tbody id="boardBody"></tbody></table>
+  </section>
+
+  <section id="move" class="tab hide">
+    <p class="note" id="moveNote"></p>
+    <table><thead><tr>
+      <th data-k="name">Player</th><th data-k="open_american">Open</th><th data-k="close_american">Close</th>
+      <th data-k="open_prob">Open%</th><th data-k="close_prob">Close%</th><th data-k="delta">Δ</th>
+    </tr></thead><tbody id="moveBody"></tbody></table>
+  </section>
+</main>
+
+<script>
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+let STATE=null, MKT="win", CLEAN=false;
+const MARKETS=[["win","Winner"],["top_5","Top 5"],["top_10","Top 10"],["top_20","Top 20"],["make_cut","Make Cut"]];
+const pct=v=>v==null?"—":(v*100).toFixed(1)+"%";
+const am=v=>v==null?"—":(v>0?"+"+v:""+v);
+const edgeCls=v=>v==null?"dim":(v>0?"pos":"neg");
+const sign=v=>v==null?"—":(v>0?"+":"")+(v*100).toFixed(1)+"%";
+
+function tag(src){return `<span class="tag ${src.toLowerCase()}">${src}</span>`;}
+function money(v){return v==null?"—":"$"+v.toLocaleString();}
+
+const SORT={};   // tabId -> {key, dir}  (dir: -1 desc, 1 asc)
+const RENDER={proj:renderProj, sg:renderSG, dfs:renderDFS, plays:renderPlays,
+              board:renderBoard, move:renderMove};
+function sortRows(rows, s){
+  if(!s || !s.key) return rows;
+  const {key,dir}=s;
+  return [...rows].sort((a,b)=>{
+    let x=a[key], y=b[key];
+    if(x==null && y==null) return 0;
+    if(x==null) return 1;              // nulls always sink
+    if(y==null) return -1;
+    if(typeof x==="string") return dir*x.localeCompare(y);
+    return dir*(x-y);
+  });
+}
+function markHeader(tab){
+  document.querySelectorAll(`#${tab} th[data-k]`).forEach(th=>{
+    th.classList.remove("sa","sd");
+    const s=SORT[tab];
+    if(s && s.key===th.dataset.k) th.classList.add(s.dir<0?"sd":"sa");
+  });
+}
+
+// CSV export — current tab, honoring the active sort + filters.
+const EXPORT={
+  proj:()=>({rows:sortRows(STATE.projections,SORT.proj), cols:[["name","Player"],
+    ["salary","Salary"],["win","Win"],["top_5","Top5"],["top_10","Top10"],
+    ["top_20","Top20"],["make_cut","MakeCut"],["src","Source"]]}),
+  sg:()=>({rows:sortRows(STATE.skills,SORT.sg), cols:[["name","Player"],
+    ["adjusted","Skill"],["sg_total","SG_Total"],["form_16","Form16"],["form_24","Form24"],
+    ["sg_ott","OTT"],["sg_app","APP"],["sg_arg","ARG"],["sg_putt","Putt"],["driving_acc","DrvZ"],
+    ["links","Links"],["birdie_pct","BoB_pct"],["bogey_pct","Bogey_pct"],["src","Source"]]}),
+  dfs:()=>({rows:sortRows(STATE.dfs,SORT.dfs), cols:[["name","Player"],["salary","Salary"],
+    ["dk_points","ProjPts"],["dk_placement","Place"],["dk_scoring","Score"],["value","Value"],
+    ["birdie_pct","BoB_pct"],["bogey_pct","Bogey_pct"],["dkppg","DKPPG"],["win","Win"],
+    ["top_20","Top20"],["make_cut","Cut"],["src","Source"]]}),
+  plays:()=>{let rows=STATE.plays[MKT]||[]; if(CLEAN)rows=rows.filter(p=>!p.estimated);
+    return {rows:sortRows(rows,SORT.plays), cols:[["player","Player"],["market","Market"],
+    ["source","Book"],["american","Price"],["model_fair","Model"],["sharp_fair","Sharp"],
+    ["blend_fair","Blend"],["edge","Edge"],["kelly","Kelly"]]};},
+  board:()=>({rows:sortRows(STATE.board,SORT.board), cols:[["name","Player"],["fair","FairProb"],
+    ["fair_american","FairPrice"],["best_book","BestBook"],["best_american","BestPrice"],["edge","Edge"]]}),
+  move:()=>({rows:sortRows(STATE.movement.rows,SORT.move), cols:[["name","Player"],
+    ["open_american","Open"],["close_american","Close"],["open_prob","OpenProb"],
+    ["close_prob","CloseProb"],["delta","DeltaProb"]]}),
+};
+function exportCSV(){
+  if(!STATE) return;
+  const tab=curTab(), cfg=EXPORT[tab] && EXPORT[tab]();
+  if(!cfg) return;
+  const esc=v=>{ if(v==null)return ""; v=String(v);
+    return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; };
+  const csv=cfg.cols.map(c=>c[1]).join(",")+"\n"+
+    cfg.rows.map(r=>cfg.cols.map(c=>esc(r[c[0]])).join(",")).join("\n");
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));
+  a.download=`open2026_${tab}.csv`;
+  a.click(); URL.revokeObjectURL(a.href);
+}
+
+function renderProj(){
+  markHeader("proj");
+  const b=$("#projBody"); b.innerHTML="";
+  for(const r of sortRows(STATE.projections, SORT.proj).slice(0,60)){
+    b.insertAdjacentHTML("beforeend",`<tr>
+      <td>${r.name}${tag(r.src)}</td><td class="dim">${money(r.salary)}</td>
+      <td>${pct(r.win)}</td><td>${pct(r.top_5)}</td>
+      <td>${pct(r.top_10)}</td><td>${pct(r.top_20)}</td><td>${pct(r.make_cut)}</td></tr>`);
+  }
+}
+function renderDFS(){
+  const rows=STATE.dfs||[], c=STATE.dk_coverage||{};
+  $("#dfsNote").innerHTML = `DK pool: <b>${c.pool}</b> players — ${c.pga} measured SG, `+
+    `${c.owgr} OWGR-est, ${c.none} replacement (all have data). <b>Proj Pts</b> = `+
+    `<b>Place</b> (finish) + <b>Score</b> (modeled birdie/bogey hole scoring). `+
+    `<b>Value</b> = proj pts per $1k. <b>DK PPG</b> is DK's own recent average, for comparison. `+
+    `Sorted by value.`;
+  markHeader("dfs");
+  const b=$("#dfsBody"); b.innerHTML="";
+  for(const r of sortRows(rows, SORT.dfs).slice(0,90)){
+    b.insertAdjacentHTML("beforeend",`<tr>
+      <td>${r.name}${tag(r.src)}</td><td>${money(r.salary)}</td>
+      <td>${r.dk_points.toFixed(1)}</td>
+      <td class="dim">${r.dk_placement.toFixed(1)}</td><td class="dim">${r.dk_scoring.toFixed(1)}</td>
+      <td class="${r.value>=0.5?'pos':''}">${r.value==null?'—':r.value.toFixed(2)}</td>
+      <td>${r.birdie_pct==null?'—':r.birdie_pct.toFixed(1)}</td>
+      <td class="dim">${r.bogey_pct==null?'—':r.bogey_pct.toFixed(1)}</td>
+      <td class="dim">${r.dkppg==null?'—':r.dkppg.toFixed(1)}</td>
+      <td>${pct(r.win)}</td><td>${pct(r.top_20)}</td><td>${pct(r.make_cut)}</td></tr>`);
+  }
+}
+function sg(v){ if(v==null)return "—"; const s=(v>0?"+":"")+v.toFixed(2);
+  return `<span class="${v>0?'pos':(v<0?'neg':'dim')}">${s}</span>`; }
+function bdItem(lab,val){
+  const cls=val>=0?'pos':'neg', hw=Math.min(50,Math.abs(val)/2.5*50);
+  const left=val>=0?50:50-hw;
+  return `<div class="bdi"><span class="lab">${lab}</span>
+    <span class="v ${cls}">${(val>=0?'+':'')+val.toFixed(2)}</span>
+    <span class="bdbar"><i class="${cls}" style="left:${left}%;width:${hw}%"></i></span></div>`;
+}
+function renderSG(){
+  markHeader("sg");
+  const b=$("#sgBody"); b.innerHTML="";
+  sortRows(STATE.skills, SORT.sg).slice(0,80).forEach((r,i)=>{
+    b.insertAdjacentHTML("beforeend",`<tr class="sgrow" data-i="${i}">
+      <td>${r.name}${tag(r.src)}</td><td>${sg(r.adjusted)}</td><td>${sg(r.sg_total)}</td>
+      <td>${sg(r.form_16)}</td><td>${sg(r.form_24)}</td>
+      <td>${sg(r.sg_ott)}</td><td>${sg(r.sg_app)}</td><td>${sg(r.sg_arg)}</td>
+      <td>${sg(r.sg_putt)}</td><td class="dim">${r.driving_acc.toFixed(2)}</td>
+      <td>${r.links.toFixed(2)}</td>
+      <td>${r.birdie_pct==null?'—':r.birdie_pct.toFixed(1)}</td>
+      <td class="dim">${r.bogey_pct==null?'—':r.bogey_pct.toFixed(1)}</td></tr>
+      <tr class="sgdetail hide" data-d="${i}"><td colspan="13"><div class="bd">
+        <span class="lead">Skill ${sg(r.adjusted)} =</span>
+        ${bdItem("Season / fit",r.bd.season)}${bdItem("Driving",r.bd.driving)}
+        ${bdItem("Links",r.bd.links)}${bdItem("Bogey avoid",r.bd.bogey??0)}${bdItem("Recent form",r.bd.form)}
+      </div></td></tr>`);
+  });
+  $$("#sgBody tr.sgrow").forEach(row=>row.onclick=()=>{
+    row.classList.toggle("open");
+    $(`#sgBody tr.sgdetail[data-d="${row.dataset.i}"]`).classList.toggle("hide");
+  });
+}
+function renderPlays(){
+  const chips=$("#mktChips"); chips.innerHTML="";
+  for(const [k,label] of MARKETS){
+    const n=(STATE.plays[k]||[]).length;
+    chips.insertAdjacentHTML("beforeend",
+      `<span class="chip ${k===MKT?'on':''}" data-m="${k}">${label} <span class="dim">${n}</span></span>`);
+  }
+  $$("#mktChips .chip").forEach(c=>c.onclick=()=>{MKT=c.dataset.m;renderPlays();});
+  markHeader("plays");
+  let rows=(STATE.plays[MKT]||[]);
+  if(CLEAN) rows=rows.filter(p=>!p.estimated);
+  rows=sortRows(rows, SORT.plays);
+  const b=$("#playsBody"); b.innerHTML="";
+  for(const p of rows.slice(0,40)){
+    b.insertAdjacentHTML("beforeend",`<tr>
+      <td>${p.player}</td><td>${p.source}</td><td>${am(p.american)}</td>
+      <td>${pct(p.model_fair)}</td><td>${p.sharp_fair==null?'<span class=dim>—</span>':pct(p.sharp_fair)}</td>
+      <td>${pct(p.blend_fair)}</td>
+      <td class="${edgeCls(p.edge)}">${sign(p.edge)}</td>
+      <td>${(p.kelly*100).toFixed(2)}%</td>
+      <td class="flags">${p.flags.join(", ")}</td></tr>`);
+  }
+  $("#playsNote").textContent = rows.length? "" :
+    "No +EV plays for this market above the edge/probability floor.";
+  if(MKT!=="win") $("#playsNote").textContent +=
+    " Placement markets have no sportsbook line (Kalshi only) — graded vs the sim.";
+}
+function renderBoard(){
+  markHeader("board");
+  $("#sharpLabel").textContent=STATE.sharp_label;
+  const b=$("#boardBody"); b.innerHTML="";
+  for(const r of sortRows(STATE.board, SORT.board).slice(0,40)){
+    b.insertAdjacentHTML("beforeend",`<tr>
+      <td>${r.name}</td><td>${pct(r.fair)}</td><td>${am(r.fair_american)}</td>
+      <td>${am(r.best_american)}</td><td>${r.best_book||'—'}</td>
+      <td class="${edgeCls(r.edge)}">${sign(r.edge)}</td></tr>`);
+  }
+}
+function renderMove(){
+  const m=STATE.movement;
+  $("#moveNote").textContent = m.single ?
+    `Only one snapshot so far (${m.close_run}). Snapshot again later to see movement.` :
+    `Open ${m.open_run} → Close ${m.close_run}. Positive Δ = steamed (shortened).`;
+  markHeader("move");
+  const b=$("#moveBody"); b.innerHTML="";
+  for(const r of sortRows(m.rows, SORT.move)){
+    b.insertAdjacentHTML("beforeend",`<tr>
+      <td>${r.name}</td><td>${am(r.open_american)}</td><td>${am(r.close_american)}</td>
+      <td>${pct(r.open_prob)}</td><td>${pct(r.close_prob)}</td>
+      <td class="${edgeCls(r.delta)}">${sign(r.delta)}</td></tr>`);
+  }
+}
+function renderAll(){
+  if(STATE.empty){ $("#loading").textContent="No snapshots yet. Click “Pull live odds”."; return; }
+  $("#loading").classList.add("hide");
+  $$(".tab").forEach(t=>t.classList.toggle("hide",t.id!==curTab()));
+  $("#event").textContent=STATE.event;
+  $("#course").textContent=STATE.course;
+  $("#run").textContent="snapshot "+STATE.run;
+  const md=$("#mode"); md.textContent=STATE.mode; md.className="badge "+STATE.mode.toLowerCase();
+  const c=STATE.coverage;
+  $("#cov").textContent=`${c.total} field · ${c.pga} PGA-SG · ${c.owgr} OWGR-est · ${c.none} none`;
+  const cr=STATE.credits||{}, pull=$("#pull"), cel=$("#credits");
+  if(cel){
+    cel.textContent = (cr.remaining!=null? `${cr.remaining} credits · `:"") +
+      `${cr.used_today}/${cr.daily_limit} today`;
+    cel.style.color = cr.blocked ? "var(--neg)" : "var(--dim)";
+  }
+  if(pull){
+    if(cr.blocked){ pull.disabled=true; pull.textContent="⤓ Pull blocked"; pull.title=cr.blocked; }
+    else { pull.disabled=false; pull.textContent="⤓ Pull live odds"; pull.title="Spends Odds API credits"; }
+  }
+  renderProj(); renderSG(); renderDFS(); renderPlays(); renderBoard(); renderMove();
+}
+function curTab(){return $("nav button.on").dataset.tab;}
+async function load(refresh){
+  $("#loading").classList.remove("hide");
+  $("#loading").textContent="Building model…";
+  const r=await fetch("/golf/api/state"+(refresh?"?refresh=1":""));
+  STATE=await r.json(); renderAll();
+}
+$$("nav button").forEach(btn=>btn.onclick=()=>{
+  $$("nav button").forEach(b=>b.classList.remove("on"));
+  btn.classList.add("on"); if(STATE)renderAll();
+});
+$$("main th[data-k]").forEach(th=>th.onclick=()=>{
+  const tab=th.closest("section").id, key=th.dataset.k, cur=SORT[tab];
+  SORT[tab] = (cur && cur.key===key) ? {key, dir:-cur.dir} : {key, dir:-1};
+  RENDER[tab]();
+});
+$("#export").onclick=exportCSV;
+$("#cleanCk").onchange=e=>{CLEAN=e.target.checked;renderPlays();};
+$("#refresh")?.addEventListener("click",()=>load(true));   // absent in view-only
+const _pull=$("#pull");
+if(_pull) _pull.onclick=async()=>{
+  _pull.disabled=true; _pull.textContent="Pulling…";
+  try{
+    const r=await fetch("/golf/api/pull",{method:"POST"}); const j=await r.json();
+    if(!j.ok) alert("Pull failed: "+j.error); else await load(false);
+  }finally{ _pull.disabled=false; _pull.textContent="⤓ Pull live odds"; }
+};
+load(false);
+</script>
+</body>
+</html>

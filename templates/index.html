@@ -123,8 +123,19 @@
   .footer-note { color: var(--muted); font-size: 11px; margin-top: 18px; }
   a { color: var(--link); }
 </style>
+<style>
+.term-nav{display:flex;gap:2px;padding:0 16px;background:#0d0f12;border-bottom:1px solid #23262b;
+  font:600 12.5px ui-monospace,SFMono-Regular,monospace;letter-spacing:.5px}
+.term-nav a{padding:11px 16px;color:#6b7280;text-decoration:none;border-bottom:2px solid transparent}
+.term-nav a:hover{color:#cbd5e1}
+.term-nav a.on{color:#e8a33d;border-bottom-color:#e8a33d}
+</style>
 </head>
 <body>
+<div class="term-nav">
+  <a href="/" class="{{ 'on' if request.path == '/' else '' }}">⚾ BASEBALL</a>
+  <a href="/golf" class="{{ 'on' if request.path.startswith('/golf') else '' }}">⛳ GOLF</a>
+</div>
 <header>
   <h1>Matchup Terminal</h1>
   <span class="sub">pitch-type matchup engine // baseball savant + mlb stats api</span>

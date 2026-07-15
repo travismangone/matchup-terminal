@@ -1,0 +1,15 @@
+# Secrets — NEVER commit. Keys live in Render env vars.
+.env
+.env.*
+
+# data/lines.jsonl IS committed as a seed so the golf tab has data (incl. the
+# opening line for CLV) on first deploy; the cron appends fresh snapshots at
+# runtime. Redeploys reset it to the committed seed — re-commit to advance it.
+data/lines_demo.jsonl
+data/bets.jsonl
+data/credit_usage.json
+
+# Python
+__pycache__/
+*.pyc
+.DS_Store

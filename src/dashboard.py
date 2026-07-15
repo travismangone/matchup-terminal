@@ -1,0 +1,246 @@
+"""
+Dashboard state builder — turns the latest snapshot into one JSON-serializable
+dict for the web UI. Reads the store (no API pull, so it's fast and free); the
+"Pull live" action in the web app is what spends credits.
+"""
+
+from __future__ import annotations
+
+from dataclasses import asdict
+
+from . import store, free_sg, course_fit, simulate, datagolf
+from .course_fit import adjusted_skill, skill_breakdown
+from .compare import find_plays, sharp_reference
+from .clv import line_movement
+from .odds_math import decimal_to_american, prob_to_decimal, expected_value
+from config import SHARP_BOOKS, EVENT
+
+MARKETS = ["win", "top_5", "top_10", "top_20", "make_cut"]
+
+
+def pull_and_snapshot() -> str:
+    """Live pull (sportsbooks + prediction markets) -> store. Spends API credits.
+    Gated by the CreditGuard. Returns the run timestamp; raises if blocked."""
+    from .odds import the_odds_api, polymarket, kalshi
+    from .match import build_index
+    from .credit_guard import CreditGuard
+    from config import POLYMARKET_TITLE_CONTAINS, KALSHI_EVENTS
+
+    guard = CreditGuard()
+    reason = guard.blocked_reason()
+    if reason:
+        raise RuntimeError(f"credit guard: {reason}")
+
+    sb, remaining = the_odds_api.fetch_winner_outrights(EVENT["odds_sport_key"])
+    guard.record(remaining)     # only the sportsbook pull costs credits
+    field = sorted({q.player for q in sb})
+    players = free_sg.build_field(field)
+    idx = build_index([p.name for p in players])
+    pm = polymarket.fetch_winner_quotes(idx, POLYMARKET_TITLE_CONTAINS)
+    kq = kalshi.fetch_quotes(idx, KALSHI_EVENTS)
+    return store.snapshot(sb + pm + kq)
+
+
+def credit_status() -> dict:
+    from .credit_guard import CreditGuard
+    g = CreditGuard()
+    return {
+        "remaining": g.last_remaining,
+        "used_today": g.used_today,
+        "daily_limit": g.daily_limit,
+        "blocked": g.blocked_reason(),
+    }
+
+
+def _skill_source(flags: list[str]) -> str:
+    if "no-data" in flags:
+        return "none"
+    if "owgr-est" in flags:
+        return "OWGR"
+    if "dg" in flags:
+        return "DG"
+    return "PGA"
+
+
+_ESTIMATED = {"owgr-est", "no-data"}
+
+
+def build_state(demo: bool = False) -> dict:
+    run = store.closing_run(demo)
+    if not run:
+        return {"empty": True, "event": EVENT["name"], "course": EVENT["course"]}
+
+    # All-market quotes from the latest run.
+    quotes = []
+    for m in MARKETS:
+        quotes += store.quotes_at(run, m, demo)
+
+    win_q = store.quotes_at(run, "win", demo)
+    odds_players = sorted({q.player for q in win_q if q.source in SHARP_BOOKS}) or \
+        sorted({q.player for q in win_q})
+
+    # Field = the full DK pool (so every rosterable player has data) + any
+    # odds-board players not in the pool, deduped by fuzzy name.
+    from .match import match_player
+    from . import dk
+    dk_sal = {} if demo else dk.load()
+    dk_idx = dk.index(dk_sal) if dk_sal else None
+    if demo:
+        players = datagolf.synthetic_field()
+    else:
+        field = [v["name"] for v in dk_sal.values()]
+        for onm in odds_players:
+            if not (dk_idx and match_player(onm, dk_idx)):
+                field.append(onm)
+        players = free_sg.build_field(field or odds_players)
+
+    # Join DK salary onto each player.
+    sal_by = {}
+    for p in players:
+        s = dk.lookup(p.name, dk_sal, dk_idx) if dk_idx else None
+        sal_by[p.name] = s
+    pl_by = {p.name: p for p in players}
+
+    flags_by = {p.name: p.flags for p in players}
+    sim = simulate.simulate(course_fit.build_skills(players))
+    rows = sim.as_dicts()
+    model_probs = {m: {r["name"]: r[m] for r in rows} for m in MARKETS}
+
+    # Strokes-gained inputs (what drives the sim), sorted by course-fit skill.
+    def _srow(p):
+        bd = skill_breakdown(p)
+        return {
+            "name": p.name,
+            "adjusted": round(bd["adjusted"], 3),   # course-fit output -> the sim
+            "sg_total": round(p.sg_total, 2),
+            "sg_ott": round(p.sg_ott, 2), "sg_app": round(p.sg_app, 2),
+            "sg_arg": round(p.sg_arg, 2), "sg_putt": round(p.sg_putt, 2),
+            "driving_acc": round(p.driving_acc, 2),
+            "links": round(p.links_history, 2),
+            "form_16": p.form_16, "form_24": p.form_24,
+            "birdie_pct": p.birdie_pct, "bogey_pct": p.bogey_pct,
+            "src": _skill_source(p.flags),
+            # Per-signal contributions to adjusted skill (they sum to it).
+            "bd": {k: round(v, 3) for k, v in bd.items() if k != "adjusted"},
+        }
+    skills = sorted((_srow(p) for p in players),
+                    key=lambda r: r["adjusted"], reverse=True)
+
+    # Projections (+ salary).
+    projections = []
+    for r in rows:
+        s = sal_by.get(r["name"])
+        projections.append({
+            "name": r["name"],
+            "win": r["win"], "top_5": r["top_5"], "top_10": r["top_10"],
+            "top_20": r["top_20"], "make_cut": r["make_cut"],
+            "salary": s["salary"] if s else None,
+            "src": _skill_source(flags_by.get(r["name"], [])),
+        })
+
+    # DFS value view — projected DK placement points and value per $1k.
+    dfs = []
+    for r in rows:
+        s = sal_by.get(r["name"])
+        salary = s["salary"] if s else None
+        pts = r["dk_points"]
+        dfs.append({
+            "name": r["name"],
+            "salary": salary,
+            "dk_points": round(pts, 1),
+            "dk_placement": round(r["dk_placement"], 1),
+            "dk_scoring": round(r["dk_scoring"], 1),
+            "value": round(pts / (salary / 1000.0), 2) if salary else None,
+            "dkppg": s["dkppg"] if s else None,
+            "birdie_pct": getattr(pl_by.get(r["name"]), "birdie_pct", None),
+            "bogey_pct": getattr(pl_by.get(r["name"]), "bogey_pct", None),
+            "win": r["win"], "top_20": r["top_20"], "make_cut": r["make_cut"],
+            "src": _skill_source(flags_by.get(r["name"], [])),
+        })
+    dfs = [d for d in dfs if d["salary"]]      # DFS view = rosterable players only
+    dfs.sort(key=lambda d: (d["value"] or 0), reverse=True)
+
+    # Best plays, grouped by market.
+    plays = find_plays(quotes, model_probs, skill_flags=flags_by)
+    plays_by_market: dict[str, list] = {m: [] for m in MARKETS}
+    for p in plays:
+        d = asdict(p)
+        d["american"] = decimal_to_american(p.offered_decimal)
+        d["estimated"] = bool({"owgr-est", "no-data"} & set(p.flags))
+        plays_by_market.setdefault(p.market, []).append(d)
+
+    return {
+        "empty": False,
+        "event": EVENT["name"],
+        "course": EVENT["course"],
+        "mode": "DEMO" if demo else "LIVE",
+        "run": run,
+        "coverage": _coverage(players),
+        "dk_coverage": _dk_coverage(players, sal_by),
+        "skills": skills,
+        "projections": projections,
+        "dfs": dfs,
+        "plays": plays_by_market,
+        "board": _board(win_q),
+        "movement": _movement(demo),
+        "sharp_label": " + ".join(b.replace("_", " ").title() for b in SHARP_BOOKS),
+        "credits": credit_status(),
+    }
+
+
+def _coverage(players) -> dict:
+    measured = sum(1 for p in players if not (_ESTIMATED & set(p.flags)))
+    owgr = sum(1 for p in players if "owgr-est" in p.flags)
+    none = sum(1 for p in players if "no-data" in p.flags)
+    return {"total": len(players), "pga": measured, "owgr": owgr, "none": none}
+
+
+def _dk_coverage(players, sal_by) -> dict:
+    """Every DK-pool player's data status. `none`/`owgr` lists surface who's
+    running on estimated (not measured) skill so nothing is silently missing."""
+    dk_players = [p for p in players if sal_by.get(p.name)]
+    measured = [p.name for p in dk_players if not (_ESTIMATED & set(p.flags))]
+    owgr = [p.name for p in dk_players if "owgr-est" in p.flags]
+    none = [p.name for p in dk_players if "no-data" in p.flags]
+    return {
+        "pool": len(dk_players),
+        "pga": len(measured), "owgr": len(owgr), "none": len(none),
+        "owgr_players": owgr, "none_players": none,
+    }
+
+
+def _board(win_q) -> list:
+    fair = sharp_reference(win_q)
+    best = {}
+    for x in win_q:
+        if x.source in SHARP_BOOKS:
+            continue
+        if x.player not in best or x.decimal_odds > best[x.player].decimal_odds:
+            best[x.player] = x
+    out = []
+    for p in sorted(fair, key=lambda k: fair[k], reverse=True):
+        b = best.get(p)
+        row = {
+            "name": p,
+            "fair": fair[p],
+            "fair_american": decimal_to_american(prob_to_decimal(fair[p])),
+            "best_book": b.source if b else None,
+            "best_american": decimal_to_american(b.decimal_odds) if b else None,
+            "edge": expected_value(fair[p], b.decimal_odds) if b else None,
+        }
+        out.append(row)
+    return out
+
+
+def _movement(demo) -> dict:
+    rows = line_movement("win", demo)
+    o, c = store.opening_run(demo), store.closing_run(demo)
+    return {
+        "open_run": o, "close_run": c, "single": (o == c),
+        "rows": [{
+            "name": m.player,
+            "open_american": m.open_american, "close_american": m.close_american,
+            "open_prob": m.open_prob, "close_prob": m.close_prob,
+            "delta": m.delta_prob,
+        } for m in rows if m.delta_prob is not None][:40],
+    }
