@@ -56,71 +56,77 @@ class SimResult:
 
 
 def simulate(skills: dict[str, float]) -> SimResult:
+    """
+    Monte Carlo, run in memory-bounded CHUNKS (float32) so peak RAM stays low
+    regardless of n_sims — the full-array version OOM-kills a 512MB instance.
+    Each chunk is independent sims; we accumulate per-sim counts/points and
+    divide at the end, so the result matches the all-at-once version within
+    Monte Carlo noise.
+    """
     names = list(skills.keys())
-    mu = np.array([skills[n] for n in names], dtype=float)
+    mu = np.array([skills[n] for n in names], dtype=np.float32)
     n_players = len(names)
 
     n_sims = SIM["n_sims"]
     sigma = SIM["round_sigma"] * SIM["wind_factor"]
+    rounds = EVENT["rounds"]
+    top_n = EVENT["cut_rule"]["top_n"]
     rng = np.random.default_rng(SIM["seed"])
 
-    # --- Simulate 4 rounds of strokes-gained (higher = better) -------------
-    # shape: (n_sims, n_players, rounds)
-    rounds = EVENT["rounds"]
-    noise = rng.normal(0.0, sigma, size=(n_sims, n_players, rounds))
-    sg = mu[None, :, None] + noise
+    # DK placement points by finishing rank (0-based).
+    rank_pts = np.zeros(n_players, dtype=np.float32)
+    fill = min(len(DK_PLACEMENT_POINTS), n_players)
+    rank_pts[:fill] = DK_PLACEMENT_POINTS[:fill]
 
-    first36 = sg[:, :, :2].sum(axis=2)     # (n_sims, n_players)
-    total72 = sg.sum(axis=2)               # (n_sims, n_players)
+    # Accumulators over sims (sums; divided by n_sims at the end).
+    c_win = np.zeros(n_players); c_t5 = np.zeros(n_players)
+    c_t10 = np.zeros(n_players); c_t20 = np.zeros(n_players)
+    c_cut = np.zeros(n_players)
+    s_place = np.zeros(n_players); s_score = np.zeros(n_players)
 
-    # --- Cut after R2: top 70 and ties advance (highest SG = best) ---------
-    top_n = EVENT["cut_rule"]["top_n"]
-    # For each sim, the cut line is the 70th-best 36-hole score. Players at or
-    # above the line (ties included) make the cut.
     k = min(top_n, n_players) - 1
-    # partition to find the (top_n)-th largest value per sim without full sort.
-    cut_line = np.partition(first36, n_players - 1 - k, axis=1)[:, n_players - 1 - k]
-    made_cut = first36 >= cut_line[:, None]     # (n_sims, n_players) bool
-
-    # Missed-cut players cannot win or place; sink their 72-hole score.
-    total_eff = np.where(made_cut, total72, -np.inf)
-
-    # --- Rank the 72-hole totals (add tiny jitter to break exact ties) -----
-    total_eff = total_eff + rng.normal(0, 1e-6, size=total_eff.shape)
-    # rank 0 = winner (largest total). argsort descending -> position of each.
-    order = np.argsort(-total_eff, axis=1)              # player indices by finish
-    finish = np.empty_like(order)
     ar = np.arange(n_players)
-    # finish[sim, player_index] = finishing position (0-based)
-    np.put_along_axis(finish, order, np.broadcast_to(ar, order.shape), axis=1)
+    chunk = SIM.get("chunk", 4000)      # peak arrays ~ chunk x players x rounds
+    done = 0
+    while done < n_sims:
+        m = min(chunk, n_sims - done)
+        # Simulate m tournaments (float32 to halve memory).
+        noise = rng.normal(0.0, sigma, size=(m, n_players, rounds)).astype(np.float32)
+        sg = mu[None, :, None] + noise
+        first36 = sg[:, :, :2].sum(axis=2)
+        total72 = sg.sum(axis=2)
 
-    win = (finish == 0).mean(axis=0)
-    top_5 = (finish < 5).mean(axis=0)
-    top_10 = (finish < 10).mean(axis=0)
-    top_20 = (finish < 20).mean(axis=0)
-    make_cut = made_cut.mean(axis=0)
+        # Cut: top-N-and-ties after R2.
+        cut_line = np.partition(first36, n_players - 1 - k, axis=1)[:, n_players - 1 - k]
+        made_cut = first36 >= cut_line[:, None]
 
-    # --- DK placement points: map each sim's finishing rank -> DK points -----
-    rank_pts = np.zeros(n_players)
-    tbl = DK_PLACEMENT_POINTS
-    fill = min(len(tbl), n_players)
-    rank_pts[:fill] = tbl[:fill]
-    place_by_sim = rank_pts[finish]                       # (n_sims, n_players)
-    dk_placement = place_by_sim.mean(axis=0)
+        # Rank 72-hole totals (missed cut sinks to -inf; jitter breaks ties).
+        total_eff = np.where(made_cut, total72, -np.inf)
+        total_eff = total_eff + rng.normal(0, 1e-6, size=total_eff.shape)
+        order = np.argsort(-total_eff, axis=1)
+        finish = np.empty_like(order)
+        np.put_along_axis(finish, order, np.broadcast_to(ar, order.shape), axis=1)
 
-    # --- DK hole-scoring points: per-round SG -> scoring pts, only rounds -----
-    # actually played (2 pre-cut always, 2 more if the sim made the cut).
-    sc = np.clip(DK_SCORING["base"] + DK_SCORING["slope"] * sg,
-                 DK_SCORING["floor"], DK_SCORING["cap"])   # (n_sims, n_players, rounds)
-    pre_cut = sc[:, :, :2].sum(axis=2)                     # rounds 1-2
-    weekend = sc[:, :, 2:].sum(axis=2) * made_cut          # rounds 3-4 if advanced
-    scoring_by_sim = pre_cut + weekend
-    dk_scoring = scoring_by_sim.mean(axis=0)
+        c_win += (finish == 0).sum(axis=0)
+        c_t5 += (finish < 5).sum(axis=0)
+        c_t10 += (finish < 10).sum(axis=0)
+        c_t20 += (finish < 20).sum(axis=0)
+        c_cut += made_cut.sum(axis=0)
 
-    dk_points = dk_placement + dk_scoring
+        # DK points: placement + hole-scoring (only rounds actually played).
+        s_place += rank_pts[finish].sum(axis=0)
+        sc = np.clip(DK_SCORING["base"] + DK_SCORING["slope"] * sg,
+                     DK_SCORING["floor"], DK_SCORING["cap"])
+        played = sc[:, :, :2].sum(axis=2) + sc[:, :, 2:].sum(axis=2) * made_cut
+        s_score += played.sum(axis=0)
+        done += m
 
+    dk_placement = s_place / n_sims
+    dk_scoring = s_score / n_sims
     return SimResult(
-        names=names, win=win, top_5=top_5, top_10=top_10,
-        top_20=top_20, make_cut=make_cut, dk_points=dk_points,
+        names=names,
+        win=c_win / n_sims, top_5=c_t5 / n_sims, top_10=c_t10 / n_sims,
+        top_20=c_t20 / n_sims, make_cut=c_cut / n_sims,
+        dk_points=dk_placement + dk_scoring,
         dk_placement=dk_placement, dk_scoring=dk_scoring, n_sims=n_sims,
     )
