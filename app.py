@@ -213,7 +213,11 @@ def golf_api_state():
     if not _GOLF_OK:
         return jsonify({"empty": True, "error": "golf module not loaded"})
     try:
-        return jsonify(_golf_state(request.args.get("refresh") == "1"))
+        state = _golf_state(request.args.get("refresh") == "1")
+        # Self-heal: if data is stale, refresh in the background for the next view
+        # (this viewer still gets the cached data instantly).
+        _golf_refresh_if_stale("on-view")
+        return jsonify(state)
     except Exception as e:
         log.exception("golf state failed")
         return jsonify({"empty": True, "error": str(e)})
@@ -270,15 +274,34 @@ def _golf_snapshot_age_min():
         return None
 
 
+_golf_refresh_lock = threading.Lock()
+
+
 def _golf_pull_once(reason: str) -> None:
-    from src.credit_guard import CreditGuard
-    blocked = CreditGuard().blocked_reason()
-    if blocked:
-        log.info("golf pull skipped (%s) — credit guard: %s", reason, blocked)
+    """Pull odds + rebuild state. Lock ensures only one pull runs at a time
+    (boot, scheduled, and on-view triggers share it). Odds are unmetered now."""
+    if not _golf_refresh_lock.acquire(blocking=False):
+        log.info("golf pull (%s) skipped — a refresh is already running", reason)
         return
-    ts = golf_dashboard.pull_and_snapshot()
-    _golf_state(rebuild=True)
-    log.info("golf pull (%s): snapshot %s", reason, ts)
+    try:
+        ts = golf_dashboard.pull_and_snapshot()
+        _golf_state(rebuild=True)
+        log.info("golf pull (%s): snapshot %s", reason, ts)
+    finally:
+        _golf_refresh_lock.release()
+
+
+def _golf_refresh_if_stale(reason: str) -> None:
+    """Self-heal for the free tier: if the latest snapshot is older than the
+    refresh window, kick a background pull so the NEXT view is fresh. Returns
+    immediately (current viewer gets cached data fast); no-op if fresh or already
+    refreshing."""
+    age = _golf_snapshot_age_min()
+    if age is not None and age < GOLF_REFRESH_MINUTES:
+        return
+    if _golf_refresh_lock.locked():
+        return
+    threading.Thread(target=_golf_pull_once, args=(reason,), daemon=True).start()
 
 
 def _golf_refresh_loop() -> None:
