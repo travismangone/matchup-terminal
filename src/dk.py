@@ -47,7 +47,9 @@ def load_ownership(path: str | None = None) -> dict[str, dict]:
     out: dict[str, dict] = {}
     if not os.path.exists(path):
         return out
-    with open(path, newline="") as f:
+    # utf-8-sig strips the BOM some exports prefix (else the first header parses
+    # as '﻿"Golfer"' and the name column comes back empty).
+    with open(path, newline="", encoding="utf-8-sig") as f:
         for row in csv.DictReader(f):
             name = (row.get("Golfer") or "").strip()
             if not name:
