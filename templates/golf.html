@@ -100,6 +100,7 @@
   <button data-tab="sg">Strokes Gained</button>
   <button data-tab="dfs">DFS Value</button>
   <button data-tab="plays">Best Plays</button>
+  <button data-tab="scan">EV Scanner</button>
   <button data-tab="board">Winner Board</button>
   <button data-tab="move">Line Movement</button>
 </nav>
@@ -152,6 +153,25 @@
     <p class="note" id="playsNote"></p>
   </section>
 
+  <section id="scan" class="tab hide">
+    <div class="row">
+      <div class="chips">
+        <span class="dim" style="margin-right:6px">grade vs</span>
+        <span class="chip on" data-ref="sharp">FanDuel (sharp)</span>
+        <span class="chip" data-ref="model">Model</span>
+        <span class="chip" data-ref="blend">Blend</span>
+      </div>
+      <label class="ck">min EV <input type="number" id="scanMin" value="2" step="0.5" style="width:56px"> %</label>
+      <label class="ck"><input type="checkbox" id="scanEst"> include estimated players</label>
+    </div>
+    <p class="note" id="scanNote"></p>
+    <table><thead><tr>
+      <th data-k="player">Player</th><th data-k="market">Mkt</th><th data-k="source">Book</th>
+      <th data-k="american">Price</th><th data-k="fair">Fair%</th><th data-k="ev">EV</th>
+      <th data-k="kelly">Stake</th>
+    </tr></thead><tbody id="scanBody"></tbody></table>
+  </section>
+
   <section id="board" class="tab hide">
     <p class="note">Sharp (<span id="sharpLabel"></span>) no-vig win line vs. best price elsewhere. Prediction-market edges are liquidity-capped.</p>
     <table><thead><tr>
@@ -171,7 +191,7 @@
 
 <script>
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
-let STATE=null, MKT="win", CLEAN=false;
+let STATE=null, MKT="win", CLEAN=false, SCAN_REF="sharp", SCAN_EST=false;
 const MARKETS=[["win","Winner"],["top_5","Top 5"],["top_10","Top 10"],["top_20","Top 20"],["make_cut","Make Cut"]];
 const pct=v=>v==null?"—":(v*100).toFixed(1)+"%";
 const am=v=>v==null?"—":(v>0?"+"+v:""+v);
@@ -182,7 +202,35 @@ function tag(src){return `<span class="tag ${src.toLowerCase()}">${src}</span>`;
 function money(v){return v==null?"—":"$"+v.toLocaleString();}
 
 const SORT={};   // tabId -> {key, dir}  (dir: -1 desc, 1 asc)
-const RENDER={proj:renderProj, sg:renderSG, dfs:renderDFS, plays:renderPlays,
+const SCAN_KEYS={sharp:["ev_sharp","sharp_fair"],model:["ev_model","model_fair"],blend:["ev_blend","blend_fair"]};
+function scanRows(){
+  const [evk,fairk]=SCAN_KEYS[SCAN_REF];
+  const min=(parseFloat($("#scanMin").value)||0)/100;
+  let rows=(STATE.ev_scan||[]).map(r=>({...r, ev:r[evk], fair:r[fairk]}))
+    .filter(r=>r.ev!=null && r.ev>=min)
+    .filter(r=>SCAN_EST || !r.estimated);
+  return sortRows(rows, SORT.scan || {key:"ev", dir:-1});
+}
+function renderScan(){
+  markHeader("scan");
+  const rows=scanRows();
+  const desc={sharp:"Pure market EV — a book or market paying better than the FanDuel no-vig line (model-independent).",
+    model:"Model-based EV — includes top-N placement markets FanDuel doesn't price; higher variance.",
+    blend:"Blended model + sharp fair."}[SCAN_REF];
+  $("#scanNote").innerHTML=`<b>${rows.length}</b> +EV bets vs ${SCAN_REF==='sharp'?'FanDuel (sharp)':SCAN_REF} `+
+    `≥ ${$('#scanMin').value}%. ${desc} Prediction-market edges are liquidity-capped.`;
+  const b=$("#scanBody"); b.innerHTML="";
+  for(const r of rows.slice(0,150)){
+    b.insertAdjacentHTML("beforeend",`<tr>
+      <td>${r.player}${r.estimated?' <span class="tag owgr">est</span>':''}</td>
+      <td>${r.market}</td><td>${r.source}</td>
+      <td>${r.american>=0?'+':''}${r.american}</td>
+      <td class="dim">${r.fair==null?'—':(r.fair*100).toFixed(1)+'%'}</td>
+      <td class="pos">${(r.ev*100).toFixed(1)}%</td>
+      <td class="dim">${r.kelly==null?'—':(r.kelly*100).toFixed(2)+'%'}</td></tr>`);
+  }
+}
+const RENDER={proj:renderProj, sg:renderSG, dfs:renderDFS, plays:renderPlays, scan:renderScan,
               board:renderBoard, move:renderMove};
 function sortRows(rows, s){
   if(!s || !s.key) return rows;
@@ -217,6 +265,8 @@ const EXPORT={
     ["dk_points","ProjPts"],["dk_placement","Place"],["dk_scoring","Score"],["value","Value"],
     ["birdie_pct","BoB_pct"],["bogey_pct","Bogey_pct"],["dkppg","DKPPG"],["win","Win"],
     ["top_20","Top20"],["make_cut","Cut"],["src","Source"]]}),
+  scan:()=>({rows:scanRows(), cols:[["player","Player"],["market","Market"],["source","Book"],
+    ["american","Price"],["fair","Fair"],["ev","EV"],["kelly","Kelly"]]}),
   plays:()=>{let rows=STATE.plays[MKT]||[]; if(CLEAN)rows=rows.filter(p=>!p.estimated);
     return {rows:sortRows(rows,SORT.plays), cols:[["player","Player"],["market","Market"],
     ["source","Book"],["american","Price"],["model_fair","Model"],["sharp_fair","Sharp"],
@@ -376,7 +426,7 @@ function renderAll(){
     if(cr.blocked){ pull.disabled=true; pull.textContent="⤓ Pull blocked"; pull.title=cr.blocked; }
     else { pull.disabled=false; pull.textContent="⤓ Pull live odds"; pull.title="Spends Odds API credits"; }
   }
-  renderProj(); renderSG(); renderDFS(); renderPlays(); renderBoard(); renderMove();
+  renderProj(); renderSG(); renderDFS(); renderPlays(); renderScan(); renderBoard(); renderMove();
 }
 function curTab(){return $("nav button.on").dataset.tab;}
 async function load(refresh){
@@ -396,6 +446,13 @@ $$("main th[data-k]").forEach(th=>th.onclick=()=>{
 });
 $("#export").onclick=exportCSV;
 $("#cleanCk").onchange=e=>{CLEAN=e.target.checked;renderPlays();};
+$$('#scan .chip[data-ref]').forEach(c=>c.onclick=()=>{
+  SCAN_REF=c.dataset.ref; SORT.scan=null;
+  $$('#scan .chip[data-ref]').forEach(x=>x.classList.toggle('on',x===c));
+  renderScan();
+});
+$("#scanMin").oninput=renderScan;
+$("#scanEst").onchange=e=>{SCAN_EST=e.target.checked;renderScan();};
 $("#refresh")?.addEventListener("click",()=>load(true));   // absent in view-only
 const _pull=$("#pull");
 if(_pull) _pull.onclick=async()=>{

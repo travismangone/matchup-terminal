@@ -26,7 +26,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .odds import Quote
-from .odds_math import remove_vig, expected_value, kelly_fraction
+from .odds_math import remove_vig, expected_value, kelly_fraction, decimal_to_american
 from config import (
     SHARP_BOOKS, MODEL_BLEND, MIN_EDGE, MIN_FAIR_PROB, MAX_PRICE_DECIMAL,
     KELLY_MULTIPLIER,
@@ -151,3 +151,54 @@ def find_plays(
 
     plays.sort(key=lambda p: p.edge, reverse=True)
     return plays
+
+
+# --------------------------------------------------------------------------
+# EV Scanner — every available bet graded vs the sharp line / model / blend.
+# Unlike find_plays (which pre-filters on the blended edge), this grades ALL
+# bets against each reference independently, so the UI can scan by whichever
+# reference you pick. Pure market EV (vs FanDuel) is the classic +EV approach.
+# --------------------------------------------------------------------------
+def scan_ev(quotes: list[Quote],
+            model_probs: dict[str, dict[str, float]]) -> list[dict]:
+    rows: list[dict] = []
+    for market in sorted({q.market for q in quotes}):
+        mq = [q for q in quotes if q.market == market]
+        sharp = sharp_reference(mq)                 # FanDuel no-vig (winner mkt)
+        model_market = model_probs.get(market, {})
+        for q in mq:
+            if q.source in SHARP_BOOKS:             # never grade the sharp vs itself
+                continue
+            if q.decimal_odds > MAX_PRICE_DECIMAL:  # skip lottery-line noise
+                continue
+            model_p = model_market.get(q.player)
+            sharp_p = sharp.get(q.player)
+            blend_p = _blend(model_p, sharp_p) if model_p is not None else sharp_p
+
+            refs = [p for p in (model_p, sharp_p, blend_p) if p is not None]
+            if not refs or max(refs) < MIN_FAIR_PROB:
+                continue
+
+            ev_sharp = expected_value(sharp_p, q.decimal_odds) if sharp_p else None
+            ev_model = expected_value(model_p, q.decimal_odds) if model_p is not None else None
+            ev_blend = expected_value(blend_p, q.decimal_odds) if blend_p is not None else None
+            best = max([e for e in (ev_sharp, ev_model, ev_blend) if e is not None],
+                       default=None)
+            if best is None or best <= 0:
+                continue
+
+            rows.append({
+                "player": q.player, "market": market,
+                "source": q.source, "source_kind": q.source_kind,
+                "american": decimal_to_american(q.decimal_odds),
+                "sharp_fair": sharp_p, "model_fair": model_p, "blend_fair": blend_p,
+                "ev_sharp": ev_sharp, "ev_model": ev_model, "ev_blend": ev_blend,
+                "kelly": (kelly_fraction(sharp_p, q.decimal_odds) * KELLY_MULTIPLIER
+                          if sharp_p else
+                          (kelly_fraction(blend_p, q.decimal_odds) * KELLY_MULTIPLIER
+                           if blend_p else None)),
+                "estimated": None,   # filled from skill flags in the dashboard layer
+            })
+    rows.sort(key=lambda r: (r["ev_sharp"] if r["ev_sharp"] is not None else r["ev_model"] or 0),
+              reverse=True)
+    return rows

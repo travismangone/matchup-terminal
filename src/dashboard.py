@@ -10,7 +10,7 @@ from dataclasses import asdict
 
 from . import store, free_sg, course_fit, simulate, datagolf
 from .course_fit import adjusted_skill, skill_breakdown
-from .compare import find_plays, sharp_reference
+from .compare import find_plays, sharp_reference, scan_ev
 from .clv import line_movement
 from .odds_math import decimal_to_american, prob_to_decimal, expected_value
 from config import SHARP_BOOKS, EVENT
@@ -169,6 +169,12 @@ def build_state(demo: bool = False) -> dict:
         d["estimated"] = bool({"owgr-est", "no-data"} & set(p.flags))
         plays_by_market.setdefault(p.market, []).append(d)
 
+    # EV scanner — every +EV bet vs sharp / model / blend (own tab).
+    ev_scan = scan_ev(quotes, model_probs)
+    for r in ev_scan:
+        r["estimated"] = bool(_ESTIMATED & set(flags_by.get(r["player"], [])))
+    ev_scan = ev_scan[:250]
+
     return {
         "empty": False,
         "event": EVENT["name"],
@@ -181,6 +187,7 @@ def build_state(demo: bool = False) -> dict:
         "projections": projections,
         "dfs": dfs,
         "plays": plays_by_market,
+        "ev_scan": ev_scan,
         "board": _board(win_q),
         "movement": _movement(demo),
         "sharp_label": " + ".join(b.replace("_", " ").title() for b in SHARP_BOOKS),
