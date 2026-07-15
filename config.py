@@ -39,21 +39,23 @@ EVENT = {
 LINKS_WEIGHTS = {
     "sg_app": 1.45,    # approach: THE separator in wind — iron control wins Opens
     "sg_ott": 1.15,    # off-the-tee: position avoids pot bunkers; distance still carries them
-    "sg_arg": 1.30,    # around-the-green: links scrambling / bump-and-run is huge
+    "sg_arg": 1.18,    # around-the-green: links scrambling matters, but SG:ARG is a
+                       # noisy low-sample stat — kept above neutral, not amplified
+
     "sg_putt": 0.60,   # putting: bumpy, wind-affected links greens = noise, downweight hard
 }
 
 # Extra multiplicative/additive fit factors (all in strokes-per-round space).
 FIT_FACTORS = {
-    # Bonus per SD of driving accuracy above field mean. Birkdale is fairer than
-    # a penal links, so the accuracy premium is real but moderate.
-    "driving_accuracy_weight": 0.15,
+    # Small accuracy nudge on top of SG:OTT (which already rewards driving), so
+    # kept low to avoid double-counting — just enough to reward links positioning.
+    "driving_accuracy_weight": 0.08,
     # Bonus for players with strong prior links / Open form (see course_fit).
     # Now backed by real data (src/links.py: Open + Scottish Open finish history),
     # not a neutral placeholder. Range is ±(this/2) SG/round at the extremes;
     # 0.40 -> ±0.20, in line with how much course fit actually moves the needle
     # at a major. Raise to lean harder on links pedigree.
-    "links_history_bonus_max": 0.50,
+    "links_history_bonus_max": 0.35,
     # Links-specific FLOOR bonus: links punishes big numbers (pot bunkers, fescue,
     # wind) more than a normal course, so bogey avoidance is worth extra here on
     # top of what raw SG implies. Bonus = weight · z(bogey avoidance), capped.
