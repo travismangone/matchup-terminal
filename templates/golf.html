@@ -418,14 +418,11 @@ function renderAll(){
   $("#cov").textContent=`${c.total} field · ${c.pga} PGA-SG · ${c.owgr} OWGR-est · ${c.none} none`;
   const cr=STATE.credits||{}, pull=$("#pull"), cel=$("#credits");
   if(cel){
-    cel.textContent = (cr.remaining!=null? `${cr.remaining} credits · `:"") +
-      `${cr.used_today}/${cr.daily_limit} today`;
-    cel.style.color = cr.blocked ? "var(--neg)" : "var(--dim)";
+    cel.textContent = cr.metered===false ? "DataGolf odds · flat-rate"
+      : (cr.remaining!=null? `${cr.remaining} credits`:"");
+    cel.style.color = "var(--dim)";
   }
-  if(pull){
-    if(cr.blocked){ pull.disabled=true; pull.textContent="⤓ Pull blocked"; pull.title=cr.blocked; }
-    else { pull.disabled=false; pull.textContent="⤓ Pull live odds"; pull.title="Spends Odds API credits"; }
-  }
+  if(pull){ pull.disabled=false; pull.textContent="⤓ Pull live odds"; pull.title="Refresh odds from DataGolf (unmetered)"; }
   renderProj(); renderSG(); renderDFS(); renderPlays(); renderScan(); renderBoard(); renderMove();
 }
 function curTab(){return $("nav button.on").dataset.tab;}

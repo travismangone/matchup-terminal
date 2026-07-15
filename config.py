@@ -139,11 +139,10 @@ DK_SCORING = {"base": 11.5, "slope": 3.6, "floor": -3.0, "cap": 30.0}
 # --------------------------------------------------------------------------
 # Odds comparison
 # --------------------------------------------------------------------------
-# Sharp reference: de-vig these and average -> the market's best truth estimate.
-# Pinnacle isn't carried for golf outrights on The Odds API, so FanDuel (sharpest
-# available US book for this market) is the reference. To add a second sharp when
-# available, append it here (e.g. "betfair_ex_eu" or "pinnacle") and it's averaged in.
-SHARP_BOOKS = ["fanduel"]
+# Sharp reference: de-vig each independently, then average -> the market's best
+# truth estimate. Now that odds come from DataGolf (which carries Pinnacle for
+# golf, unlike The Odds API), we use the classic two-book sharp: FanDuel + Pinnacle.
+SHARP_BOOKS = ["fanduel", "pinnacle"]
 
 # Prediction-market feeds (compared against the sharp reference).
 # Polymarket: event titles that mean "the Open winner".

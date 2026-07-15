@@ -19,37 +19,31 @@ MARKETS = ["win", "top_5", "top_10", "top_20", "make_cut"]
 
 
 def pull_and_snapshot() -> str:
-    """Live pull (sportsbooks + prediction markets) -> store. Spends API credits.
-    Gated by the CreditGuard. Returns the run timestamp; raises if blocked."""
-    from .odds import the_odds_api, polymarket, kalshi
+    """Live pull -> store. Sportsbooks (incl. FanDuel + Pinnacle) come from
+    DataGolf, which is flat-rate (no per-pull credits) and lists an event's odds
+    1-2 weeks out. Prediction markets from Kalshi/Polymarket. Returns run ts."""
+    from .odds import datagolf_odds, polymarket, kalshi
     from .match import build_index
-    from .credit_guard import CreditGuard
+    from . import dk
     from config import POLYMARKET_TITLE_CONTAINS, KALSHI_EVENTS
 
-    guard = CreditGuard()
-    reason = guard.blocked_reason()
-    if reason:
-        raise RuntimeError(f"credit guard: {reason}")
+    # Roster = DK pool + DataGolf field, so odds names line up with the model.
+    roster = dk.pool_names()
+    try:
+        roster += datagolf.fetch_field()
+    except Exception:
+        pass
+    idx = build_index(roster)
 
-    sb, remaining = the_odds_api.fetch_winner_outrights(EVENT["odds_sport_key"])
-    guard.record(remaining)     # only the sportsbook pull costs credits
-    field = sorted({q.player for q in sb})
-    players = free_sg.build_field(field)
-    idx = build_index([p.name for p in players])
+    sb = datagolf_odds.fetch_winner_quotes(idx)      # FanDuel + Pinnacle + 12 more
     pm = polymarket.fetch_winner_quotes(idx, POLYMARKET_TITLE_CONTAINS)
     kq = kalshi.fetch_quotes(idx, KALSHI_EVENTS)
     return store.snapshot(sb + pm + kq)
 
 
 def credit_status() -> dict:
-    from .credit_guard import CreditGuard
-    g = CreditGuard()
-    return {
-        "remaining": g.last_remaining,
-        "used_today": g.used_today,
-        "daily_limit": g.daily_limit,
-        "blocked": g.blocked_reason(),
-    }
+    # Odds now come from DataGolf (flat-rate subscription) — no per-pull metering.
+    return {"metered": False, "note": "DataGolf odds — flat-rate, no per-pull credits"}
 
 
 def _skill_source(flags: list[str]) -> str:
