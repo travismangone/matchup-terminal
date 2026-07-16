@@ -274,32 +274,53 @@ def _golf_snapshot_age_min():
         return None
 
 
-_golf_refresh_lock = threading.Lock()
+# Timestamp a pull started (0 = idle). A pull older than the timeout is presumed
+# hung (a stalled network call or crashed rebuild) and gets superseded — a plain
+# Lock would stay held forever and freeze all future refreshes, which is exactly
+# how the movement got stuck at one timestamp.
+_golf_refresh = {"since": 0.0}
+_GOLF_PULL_TIMEOUT = 300
 
 
 def _golf_pull_once(reason: str) -> None:
-    """Pull odds + rebuild state. Lock ensures only one pull runs at a time
-    (boot, scheduled, and on-view triggers share it). Odds are unmetered now."""
-    if not _golf_refresh_lock.acquire(blocking=False):
+    """Pull odds + rebuild state. Skips only if a *recent* pull is still running."""
+    import time
+    now = time.time()
+    since = _golf_refresh["since"]
+    if since and (now - since) < _GOLF_PULL_TIMEOUT:
         log.info("golf pull (%s) skipped — a refresh is already running", reason)
         return
+    _golf_refresh["since"] = now
     try:
         ts = golf_dashboard.pull_and_snapshot()
         _golf_state(rebuild=True)
         log.info("golf pull (%s): snapshot %s", reason, ts)
+    except Exception as e:
+        log.warning("golf pull (%s) FAILED: %s", reason, e)   # was swallowed before
     finally:
-        _golf_refresh_lock.release()
+        _golf_refresh["since"] = 0.0
+
+
+def _golf_cache_behind_store() -> bool:
+    """True if the store has a newer snapshot than the cached state was built from
+    — i.e. a pull landed but its cache rebuild failed, so the view is stale."""
+    try:
+        from src import store
+        latest = store.closing_run()
+        cached = (_golf_cache.get("state") or {}).get("run")
+        return bool(latest and cached and latest > cached)
+    except Exception:
+        return False
 
 
 def _golf_refresh_if_stale(reason: str) -> None:
-    """Self-heal for the free tier: if the latest snapshot is older than the
-    refresh window, kick a background pull so the NEXT view is fresh. Returns
-    immediately (current viewer gets cached data fast); no-op if fresh or already
-    refreshing."""
+    """Self-heal (free tier): kick a background pull+rebuild if the latest snapshot
+    is old OR the cache has fallen behind the store (a prior rebuild failed).
+    Returns immediately — current viewer gets cached data fast; the pull's guard
+    dedupes concurrent calls so a stuck one can't block forever."""
     age = _golf_snapshot_age_min()
-    if age is not None and age < GOLF_REFRESH_MINUTES:
-        return
-    if _golf_refresh_lock.locked():
+    stale = age is None or age >= GOLF_REFRESH_MINUTES
+    if not stale and not _golf_cache_behind_store():
         return
     threading.Thread(target=_golf_pull_once, args=(reason,), daemon=True).start()
 
