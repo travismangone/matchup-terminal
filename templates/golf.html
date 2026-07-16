@@ -99,6 +99,7 @@
   <button data-tab="proj" class="on">Projections</button>
   <button data-tab="sg">Strokes Gained</button>
   <button data-tab="dfs">DFS Value</button>
+  <button data-tab="live">Live Round</button>
   <button data-tab="sim">Optimal</button>
   <button data-tab="plays">Best Plays</button>
   <button data-tab="scan">EV Scanner</button>
@@ -173,6 +174,18 @@
       <th data-k="american">Price</th><th data-k="fair">Fair%</th><th data-k="ev">EV</th>
       <th data-k="kelly">Stake</th>
     </tr></thead><tbody id="scanBody"></tbody></table>
+  </section>
+
+  <section id="live" class="tab hide">
+    <p class="note" id="liveNote"></p>
+    <table><thead><tr>
+      <th data-k="name">Player</th><th data-k="pos">Pos</th><th data-k="score">Score</th>
+      <th data-k="salary">Salary</th>
+      <th data-k="proj" title="Projected DK scoring points for the next round">Proj</th>
+      <th data-k="ceiling" title="85th-percentile round — the GPP upside">Ceiling</th>
+      <th data-k="value" title="Proj points per $1k">Value</th>
+      <th data-k="own_large" title="Projected ownership">Own%</th>
+    </tr></thead><tbody id="liveBody"></tbody></table>
   </section>
 
   <section id="sim" class="tab hide">
@@ -262,6 +275,29 @@ function renderScan(){
       <td class="dim">${r.kelly==null?'—':(r.kelly*100).toFixed(2)+'%'}</td></tr>`);
   }
 }
+function renderLive(){
+  markHeader("live");
+  const lv=STATE.live||{}, rows=lv.rows||[];
+  const rn=lv.next_round;
+  $("#liveNote").innerHTML = rn ?
+    `<b>Round ${rn}</b> single-round showdown — projected DK <i>scoring</i> points for the next round `+
+    `(no placement; that's a full-tournament thing). <b>Ceiling</b> = 85th-percentile round, the GPP upside `+
+    `for a one-round slate. Default sort: value. `+
+    (rn===4?`<b>R4 note:</b> final-round placement isn't layered in yet — treat as scoring only.`:``) :
+    `No round is live yet — this activates once Round 1 is underway. During the event it shows the next round's plays.`;
+  const b=$("#liveBody"); b.innerHTML="";
+  if(!rows.length) return;
+  for(const r of sortRows(rows, SORT.live || {key:"value", dir:-1}).slice(0,80)){
+    b.insertAdjacentHTML("beforeend",`<tr>
+      <td>${r.name}${tag(r.src)}</td><td class="dim">${r.pos??'—'}</td>
+      <td class="dim">${r.score==null?'—':(r.score>0?'+'+r.score:r.score)}</td>
+      <td>${money(r.salary)}</td>
+      <td>${r.proj==null?'—':r.proj.toFixed(1)}</td>
+      <td class="pos">${r.ceiling==null?'—':r.ceiling.toFixed(1)}</td>
+      <td class="${r.value>=2.6?'pos':''}">${r.value==null?'—':r.value.toFixed(2)}</td>
+      <td class="dim">${r.own_large==null?'—':r.own_large.toFixed(1)+'%'}</td></tr>`);
+  }
+}
 function renderSim(){
   markHeader("sim");
   const rows=sortRows(STATE.sim||[], SORT.sim || {key:"optimal", dir:-1});
@@ -306,7 +342,7 @@ function renderH2H(){
       <td class="dim">${r.kelly==null?'—':(r.kelly*100).toFixed(2)+'%'}</td></tr>`);
   }
 }
-const RENDER={proj:renderProj, sg:renderSG, dfs:renderDFS, sim:renderSim, plays:renderPlays, scan:renderScan, h2h:renderH2H,
+const RENDER={proj:renderProj, sg:renderSG, dfs:renderDFS, live:renderLive, sim:renderSim, plays:renderPlays, scan:renderScan, h2h:renderH2H,
               board:renderBoard, move:renderMove};
 function sortRows(rows, s){
   if(!s || !s.key) return rows;
@@ -344,6 +380,9 @@ const EXPORT={
     ["top_20","Top20"],["make_cut","Cut"],["src","Source"]]}),
   scan:()=>({rows:scanRows(), cols:[["player","Player"],["market","Market"],["source","Book"],
     ["american","Price"],["fair","Fair"],["ev","EV"],["kelly","Kelly"]]}),
+  live:()=>({rows:sortRows((STATE.live||{}).rows||[],SORT.live||{key:"value",dir:-1}), cols:[["name","Player"],
+    ["pos","Pos"],["score","Score"],["salary","Salary"],["proj","Proj"],["ceiling","Ceiling"],
+    ["value","Value"],["own_large","Own_pct"]]}),
   sim:()=>({rows:sortRows(STATE.sim||[],SORT.sim||{key:"optimal",dir:-1}), cols:[["name","Player"],
     ["salary","Salary"],["dk_points","ProjPts"],["optimal","Optimal_pct"],
     ["own_large","Own_pct"],["leverage","Leverage"]]}),
@@ -506,7 +545,7 @@ function renderAll(){
     cel.style.color = "var(--dim)";
   }
   if(pull){ pull.disabled=false; pull.textContent="⤓ Pull live odds"; pull.title="Refresh odds from DataGolf (unmetered)"; }
-  renderProj(); renderSG(); renderDFS(); renderSim(); renderPlays(); renderScan(); renderH2H(); renderBoard(); renderMove();
+  renderProj(); renderSG(); renderDFS(); renderLive(); renderSim(); renderPlays(); renderScan(); renderH2H(); renderBoard(); renderMove();
 }
 function curTab(){return $("nav button.on").dataset.tab;}
 async function load(refresh){

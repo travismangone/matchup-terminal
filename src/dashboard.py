@@ -246,6 +246,7 @@ def build_state(demo: bool = False) -> dict:
         "projections": projections,
         "dfs": dfs,
         "sim": sim_rows,
+        "live": _live_round(players, skills_map, sal_by, own_map, own_idx, demo),
         "plays": plays_by_market,
         "ev_scan": ev_scan,
         "h2h": h2h,
@@ -254,6 +255,45 @@ def build_state(demo: bool = False) -> dict:
         "sharp_label": " + ".join(b.replace("_", " ").title() for b in SHARP_BOOKS),
         "credits": credit_status(),
     }
+
+
+def _live_round(players, skills_map, sal_by, own_map, own_idx, demo) -> dict:
+    """In-tournament next-round DFS: current standing + projected next-round DK
+    points (single-round scoring) + value/ceiling. Empty until a round is live."""
+    if demo:
+        return {"next_round": None, "rows": []}
+    from .odds import datagolf_inplay
+    from .match import build_index
+    from . import live, dk
+
+    idx = build_index([p.name for p in players])
+    ip = datagolf_inplay.fetch_inplay(idx)
+    nr = ip.get("next_round")
+    if not nr or not ip.get("players"):
+        return {"next_round": None, "rows": []}
+
+    proj = live.project_next_round(skills_map)
+    rows = []
+    for p in players:
+        st = ip["players"].get(p.name)
+        if not st:                      # only golfers actually in the field
+            continue
+        pr = proj.get(p.name)
+        s = sal_by.get(p.name)
+        salary = s["salary"] if s else None
+        o = dk.lookup(p.name, own_map, own_idx) if own_idx else None
+        rows.append({
+            "name": p.name,
+            "pos": st["current_pos"], "score": st["current_score"], "thru": st["thru"],
+            "salary": salary,
+            "proj": pr["proj"] if pr else None,
+            "ceiling": pr["ceiling"] if pr else None,
+            "value": round(pr["proj"] / (salary / 1000.0), 2) if (pr and salary) else None,
+            "own_large": o["own_large"] if o else None,
+            "src": _skill_source(p.flags),
+        })
+    rows.sort(key=lambda r: (r["value"] or 0), reverse=True)
+    return {"next_round": nr, "rows": rows}
 
 
 def _coverage(players) -> dict:
