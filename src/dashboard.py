@@ -262,7 +262,7 @@ def _live_round(players, skills_map, sal_by, own_map, own_idx, demo) -> dict:
     points (single-round scoring) + value/ceiling. Empty until a round is live."""
     if demo:
         return {"next_round": None, "rows": []}
-    from .odds import datagolf_inplay
+    from .odds import datagolf_inplay, datagolf_livestats
     from .match import build_index
     from . import live, dk
 
@@ -272,13 +272,20 @@ def _live_round(players, skills_map, sal_by, own_map, own_idx, demo) -> dict:
     if not nr or not ip.get("players"):
         return {"next_round": None, "rows": []}
 
-    proj = live.project_next_round(skills_map)
+    # Regression: pull last completed round's SG components, blend the sustainable
+    # part with season skill -> form-adjusted expectation drives the R2 projection.
+    last_round = datagolf_livestats.fetch_round_stats(idx, nr - 1) if nr > 1 else {}
+    reg = live.regression_scores(skills_map, last_round)
+    proj_skills = {name: reg[name]["expected"] for name in skills_map}
+    proj = live.project_next_round(proj_skills)
+
     rows = []
     for p in players:
         st = ip["players"].get(p.name)
         if not st:                      # only golfers actually in the field
             continue
         pr = proj.get(p.name)
+        rg = reg.get(p.name, {})
         s = sal_by.get(p.name)
         salary = s["salary"] if s else None
         o = dk.lookup(p.name, own_map, own_idx) if own_idx else None
@@ -289,6 +296,8 @@ def _live_round(players, skills_map, sal_by, own_map, own_idx, demo) -> dict:
             "proj": pr["proj"] if pr else None,
             "ceiling": pr["ceiling"] if pr else None,
             "value": round(pr["proj"] / (salary / 1000.0), 2) if (pr and salary) else None,
+            "r1_sg": rg.get("r1_sg"), "r1_putt": rg.get("r1_putt"),
+            "regression": rg.get("regression"),
             "own_large": o["own_large"] if o else None,
             "src": _skill_source(p.flags),
         })
