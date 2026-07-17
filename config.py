@@ -141,6 +141,21 @@ DK_PLACEMENT_POINTS = (
 DK_SCORING = {"base": 11.5, "slope": 3.6, "floor": -3.0, "cap": 30.0}
 
 # --------------------------------------------------------------------------
+# Draw (AM/PM wave) modeling — the biggest live edge at a links major.
+# At The Open the wind often differs sharply between the early and late waves;
+# whichever wave plays the calmer window has a real scoring advantage the skill
+# model can't see. We pull the upcoming round's tee-time waves (DataGolf
+# field-updates) + an hourly wind forecast (Open-Meteo, no key) and convert the
+# wind gap between waves into an SG nudge on the next-round projection.
+EVENT_LOCATION = {"lat": 53.6236, "lon": -3.0327, "name": "Royal Birkdale"}
+DRAW = {
+    "sg_per_mph": 0.055,   # relative SG penalty per mph of wind above the field-mean wave
+    "cap": 0.65,           # max |draw adjustment| in SG (keeps a wild forecast from dominating)
+    "round_hours": 4.6,    # tee -> finish, used to bound each wave's on-course wind window
+    "gust_weight": 0.35,   # blend sustained wind with this much gust (gusts punish links scoring)
+}
+
+# --------------------------------------------------------------------------
 # Odds comparison
 # --------------------------------------------------------------------------
 # Sharp reference: de-vig each independently, then average -> the market's best

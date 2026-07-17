@@ -51,6 +51,8 @@
   .tag.none{background:rgba(248,81,73,.12);color:var(--neg)}
   .tag.est{background:rgba(210,153,34,.15);color:var(--warn)}
   .note{color:var(--dim);font-size:11.5px;margin:10px 0 0}
+  .draw-banner{margin:10px 0 2px;padding:8px 12px;border:1px solid var(--line);border-left:3px solid var(--accent2);
+    border-radius:5px;background:var(--panel2);font-size:12px;color:var(--txt)}
   .hide{display:none}
   tr.sgrow{cursor:pointer}
   tr.sgrow td:first-child::before{content:"▸ ";color:var(--dim)}
@@ -178,14 +180,18 @@
 
   <section id="live" class="tab hide">
     <p class="note" id="liveNote"></p>
+    <div id="drawBanner" class="draw-banner hide"></div>
     <table><thead><tr>
       <th data-k="name">Player</th><th data-k="pos">Pos</th><th data-k="score">Score</th>
+      <th data-k="teetime" title="Next-round tee time (local)">Tee</th>
+      <th data-k="wave" title="AM (early) or PM (late) wave for the next round">Wave</th>
       <th data-k="salary">Salary</th>
       <th data-k="r1_sg" title="Strokes gained in the last completed round">R-SG</th>
       <th data-k="r1_app" title="Approach strokes gained last round — the most repeatable component; the engine of a real, sustainable round">App</th>
       <th data-k="r1_putt" title="Putting strokes gained last round — the least repeatable, most fluky component">Putt</th>
       <th data-k="regression" title="Expected next-round SG minus last round's actual. Green = positive regression (played better than they scored — bounce-back). Red = negative regression (scored better than they played — fade).">Regr</th>
-      <th data-k="proj" title="Projected DK scoring points for the next round (form-adjusted for regression)">Proj</th>
+      <th data-k="draw" title="Draw edge: SG nudge from the wind forecast over this golfer's own tee-to-finish window vs. the field. Green = calmer window (advantage), red = windier. Already baked into Proj.">Draw</th>
+      <th data-k="proj" title="Projected DK scoring points for the next round (form-adjusted for regression + draw)">Proj</th>
       <th data-k="ceiling" title="85th-percentile round — the GPP upside">Ceiling</th>
       <th data-k="value" title="Proj points per $1k">Value</th>
       <th data-k="own_large" title="Projected ownership">Own%</th>
@@ -288,21 +294,35 @@ function renderLive(){
     `(no placement; that's a full-tournament thing). <b>Regr</b> = regression signal: `+
     `<span class="pos">green</span> golfers played better than they scored last round (ball-striking &gt; putting — `+
     `<b>bounce-back</b>), <span class="neg">red</span> ones scored better than they played (putter got hot — <b>fade</b>). `+
-    `The <b>Proj</b> is already form-adjusted for it. <b>Ceiling</b> = 85th-percentile round, the GPP upside `+
-    `for a one-round slate. Default sort: value. `+
+    `The <b>Proj</b> is already form-adjusted for it, plus the <b>Draw</b> (wind) edge. <b>Ceiling</b> = 85th-percentile `+
+    `round, the GPP upside for a one-round slate. Default sort: value. `+
     (rn===4?`<b>R4 note:</b> final-round placement isn't layered in yet — treat as scoring only.`:``) :
     `No round is live yet — this activates once Round 1 is underway. During the event it shows the next round's plays.`;
+  // Draw (AM/PM wind) banner
+  const dr=lv.draw, db=$("#drawBanner");
+  if(dr && dr.favored){
+    const fav=dr.favored==='early'?'AM (early)':'PM (late)';
+    const dog=dr.favored==='early'?'PM (late)':'AM (early)';
+    db.className="draw-banner";
+    db.innerHTML=`<b>R${rn} draw:</b> <span class="pos">${fav} favored</span> — `+
+      `AM window avg <b>${dr.early_wind}mph</b> vs PM <b>${dr.late_wind}mph</b> wind. `+
+      `${dog} plays the tougher air. Best-to-worst draw spread <b>${dr.edge_sg} SG</b>, folded into Proj.`+
+      (dr.precip>0.5?` Rain in the forecast (${dr.precip}mm).`:``);
+  } else { db.className="draw-banner hide"; db.innerHTML=""; }
   const b=$("#liveBody"); b.innerHTML="";
   if(!rows.length) return;
   for(const r of sortRows(rows, SORT.live || {key:"value", dir:-1}).slice(0,80)){
     b.insertAdjacentHTML("beforeend",`<tr>
       <td>${r.name}${tag(r.src)}</td><td class="dim">${r.pos??'—'}</td>
       <td class="dim">${r.score==null?'—':(r.score>0?'+'+r.score:r.score)}</td>
+      <td class="dim">${r.teetime??'—'}</td>
+      <td class="dim">${r.wave==null?'—':(r.wave==='early'?'AM':'PM')}</td>
       <td>${money(r.salary)}</td>
       <td class="dim">${r.r1_sg==null?'—':(r.r1_sg>0?'+'+r.r1_sg.toFixed(2):r.r1_sg.toFixed(2))}</td>
       <td class="${r.r1_app==null?'dim':(r.r1_app>0.5?'pos':(r.r1_app<-0.5?'neg':'dim'))}">${r.r1_app==null?'—':(r.r1_app>0?'+'+r.r1_app.toFixed(2):r.r1_app.toFixed(2))}</td>
       <td class="dim">${r.r1_putt==null?'—':(r.r1_putt>0?'+'+r.r1_putt.toFixed(2):r.r1_putt.toFixed(2))}</td>
       <td class="${r.regression==null?'':(r.regression>0.15?'pos':(r.regression<-0.15?'neg':''))}">${r.regression==null?'—':(r.regression>0?'+'+r.regression.toFixed(2):r.regression.toFixed(2))}</td>
+      <td class="${r.draw==null?'':(r.draw>0.05?'pos':(r.draw<-0.05?'neg':''))}">${r.draw==null?'—':(r.draw>0?'+'+r.draw.toFixed(2):r.draw.toFixed(2))}</td>
       <td>${r.proj==null?'—':r.proj.toFixed(1)}</td>
       <td class="pos">${r.ceiling==null?'—':r.ceiling.toFixed(1)}</td>
       <td class="${r.value>=2.6?'pos':''}">${r.value==null?'—':r.value.toFixed(2)}</td>
@@ -392,8 +412,9 @@ const EXPORT={
   scan:()=>({rows:scanRows(), cols:[["player","Player"],["market","Market"],["source","Book"],
     ["american","Price"],["fair","Fair"],["ev","EV"],["kelly","Kelly"]]}),
   live:()=>({rows:sortRows((STATE.live||{}).rows||[],SORT.live||{key:"value",dir:-1}), cols:[["name","Player"],
-    ["pos","Pos"],["score","Score"],["salary","Salary"],["r1_sg","R_SG"],["r1_app","R_App"],
-    ["r1_putt","R_Putt"],["regression","Regr"],["proj","Proj"],["ceiling","Ceiling"],
+    ["pos","Pos"],["score","Score"],["teetime","Tee"],["wave","Wave"],["salary","Salary"],
+    ["r1_sg","R_SG"],["r1_app","R_App"],["r1_putt","R_Putt"],["regression","Regr"],["draw","Draw"],
+    ["proj","Proj"],["ceiling","Ceiling"],
     ["value","Value"],["own_large","Own_pct"]]}),
   sim:()=>({rows:sortRows(STATE.sim||[],SORT.sim||{key:"optimal",dir:-1}), cols:[["name","Player"],
     ["salary","Salary"],["dk_points","ProjPts"],["optimal","Optimal_pct"],

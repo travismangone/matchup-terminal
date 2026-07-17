@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from config import SIM, DK_SCORING
+from config import SIM, DK_SCORING, DRAW
 
 # Single-round upside cap. The tournament model caps a round's contribution at ~30
 # (to tame outliers in a 4-round sum), but a single showdown round genuinely tops
@@ -66,6 +66,64 @@ def regression_scores(skills: dict[str, float], last_round: dict[str, dict]) -> 
             "regression": round(expected - s["total"], 2),
         }
     return out
+
+
+def draw_edges(waves: dict, hourly: dict) -> dict:
+    """
+    Per-player draw SG: average the forecast wind over each golfer's own tee ->
+    finish window, then nudge them relative to the field-mean window wind (calmer
+    window = positive SG). Captures the within-wave edge (earliest tees play the
+    least wind), not just AM vs PM.
+
+    waves:  {name: {wave, hour, teetime, ...}} from datagolf_field.
+    hourly: {hours, wind, gust, precip} from weather.fetch_hourly.
+
+    Returns {"per_player": {name: sg}, "summary": {...}} or {} if unusable.
+    """
+    from . import weather
+
+    if not hourly or not waves:
+        return {}
+
+    # Each player's gust-blended wind over their on-course window.
+    pw = {}
+    for name, v in waves.items():
+        hr = v.get("hour")
+        if hr is None:
+            continue
+        w = weather.window_wind(hourly, hr, hr + DRAW["round_hours"])
+        if w is not None:
+            pw[name] = w
+    if not pw:
+        return {}
+
+    mean_wind = sum(pw.values()) / len(pw)
+    cap = DRAW["cap"]
+    per_player = {
+        name: round(max(-cap, min(cap, -DRAW["sg_per_mph"] * (w - mean_wind))), 3)
+        for name, w in pw.items()
+    }
+
+    def _wave_avg(wave):
+        vals = [pw[n] for n, v in waves.items() if v.get("wave") == wave and n in pw]
+        return round(sum(vals) / len(vals), 1) if vals else None
+
+    ew, lw = _wave_avg("early"), _wave_avg("late")
+    favored = None
+    if ew is not None and lw is not None:
+        favored = "early" if ew < lw else "late"
+    spread = round(max(per_player.values()) - min(per_player.values()), 2) if per_player else 0.0
+    return {
+        "per_player": per_player,
+        "summary": {
+            "early_wind": ew, "late_wind": lw, "favored": favored,
+            "edge_sg": spread,          # best-to-worst draw gap across the field, in SG
+            "mean_wind": round(mean_wind, 1),
+            "n_early": sum(1 for v in waves.values() if v.get("wave") == "early"),
+            "n_late": sum(1 for v in waves.values() if v.get("wave") == "late"),
+            "precip": hourly.get("precip", 0.0),
+        },
+    }
 
 
 def project_next_round(skills: dict[str, float], n_sims: int = 4000) -> dict[str, dict]:

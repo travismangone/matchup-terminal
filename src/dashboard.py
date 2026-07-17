@@ -262,9 +262,9 @@ def _live_round(players, skills_map, sal_by, own_map, own_idx, demo) -> dict:
     points (single-round scoring) + value/ceiling. Empty until a round is live."""
     if demo:
         return {"next_round": None, "rows": []}
-    from .odds import datagolf_inplay, datagolf_livestats
+    from .odds import datagolf_inplay, datagolf_livestats, datagolf_field
     from .match import build_index
-    from . import live, dk
+    from . import live, dk, weather
 
     idx = build_index([p.name for p in players])
     ip = datagolf_inplay.fetch_inplay(idx)
@@ -276,7 +276,18 @@ def _live_round(players, skills_map, sal_by, own_map, own_idx, demo) -> dict:
     # part with season skill -> form-adjusted expectation drives the R2 projection.
     last_round = datagolf_livestats.fetch_round_stats(idx, nr - 1) if nr > 1 else {}
     reg = live.regression_scores(skills_map, last_round)
-    proj_skills = {name: reg[name]["expected"] for name in skills_map}
+
+    # Draw: pair each player's own next-round tee window with the wind forecast;
+    # the calmer window gets a positive SG nudge (captures earliest-tee edge too).
+    wv = datagolf_field.fetch_waves(idx, nr)
+    waves = wv.get("players", {})
+    hourly = weather.fetch_hourly(wv["date"]) if wv.get("date") and waves else None
+    draw = live.draw_edges(waves, hourly) if hourly else {}
+    per_player = draw.get("per_player", {})
+
+    # Fold the draw nudge into the projection mean (on top of the regression expectation).
+    proj_skills = {name: reg[name]["expected"] + per_player.get(name, 0.0)
+                   for name in skills_map}
     proj = live.project_next_round(proj_skills)
 
     rows = []
@@ -286,6 +297,7 @@ def _live_round(players, skills_map, sal_by, own_map, own_idx, demo) -> dict:
             continue
         pr = proj.get(p.name)
         rg = reg.get(p.name, {})
+        w = waves.get(p.name) or {}
         s = sal_by.get(p.name)
         salary = s["salary"] if s else None
         o = dk.lookup(p.name, own_map, own_idx) if own_idx else None
@@ -298,11 +310,13 @@ def _live_round(players, skills_map, sal_by, own_map, own_idx, demo) -> dict:
             "value": round(pr["proj"] / (salary / 1000.0), 2) if (pr and salary) else None,
             "r1_sg": rg.get("r1_sg"), "r1_app": rg.get("r1_app"),
             "r1_putt": rg.get("r1_putt"), "regression": rg.get("regression"),
+            "wave": w.get("wave"), "teetime": w.get("teetime"),
+            "draw": round(per_player.get(p.name, 0.0), 2) if per_player else None,
             "own_large": o["own_large"] if o else None,
             "src": _skill_source(p.flags),
         })
     rows.sort(key=lambda r: (r["value"] or 0), reverse=True)
-    return {"next_round": nr, "rows": rows}
+    return {"next_round": nr, "rows": rows, "draw": draw.get("summary")}
 
 
 def _coverage(players) -> dict:
