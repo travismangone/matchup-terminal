@@ -60,6 +60,7 @@ def regression_scores(skills: dict[str, float], last_round: dict[str, dict]) -> 
         expected = BASELINE_WEIGHT * skill + (1 - BASELINE_WEIGHT) * sustainable
         out[name] = {
             "r1_sg": round(s["total"], 2),
+            "r1_app": round(s["app"], 2),
             "r1_putt": round(s["putt"], 2),
             "expected": expected,
             "regression": round(expected - s["total"], 2),

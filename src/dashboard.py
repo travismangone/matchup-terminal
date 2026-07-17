@@ -296,8 +296,8 @@ def _live_round(players, skills_map, sal_by, own_map, own_idx, demo) -> dict:
             "proj": pr["proj"] if pr else None,
             "ceiling": pr["ceiling"] if pr else None,
             "value": round(pr["proj"] / (salary / 1000.0), 2) if (pr and salary) else None,
-            "r1_sg": rg.get("r1_sg"), "r1_putt": rg.get("r1_putt"),
-            "regression": rg.get("regression"),
+            "r1_sg": rg.get("r1_sg"), "r1_app": rg.get("r1_app"),
+            "r1_putt": rg.get("r1_putt"), "regression": rg.get("regression"),
             "own_large": o["own_large"] if o else None,
             "src": _skill_source(p.flags),
         })

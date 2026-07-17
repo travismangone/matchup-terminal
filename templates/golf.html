@@ -182,6 +182,7 @@
       <th data-k="name">Player</th><th data-k="pos">Pos</th><th data-k="score">Score</th>
       <th data-k="salary">Salary</th>
       <th data-k="r1_sg" title="Strokes gained in the last completed round">R-SG</th>
+      <th data-k="r1_app" title="Approach strokes gained last round — the most repeatable component; the engine of a real, sustainable round">App</th>
       <th data-k="r1_putt" title="Putting strokes gained last round — the least repeatable, most fluky component">Putt</th>
       <th data-k="regression" title="Expected next-round SG minus last round's actual. Green = positive regression (played better than they scored — bounce-back). Red = negative regression (scored better than they played — fade).">Regr</th>
       <th data-k="proj" title="Projected DK scoring points for the next round (form-adjusted for regression)">Proj</th>
@@ -299,6 +300,7 @@ function renderLive(){
       <td class="dim">${r.score==null?'—':(r.score>0?'+'+r.score:r.score)}</td>
       <td>${money(r.salary)}</td>
       <td class="dim">${r.r1_sg==null?'—':(r.r1_sg>0?'+'+r.r1_sg.toFixed(2):r.r1_sg.toFixed(2))}</td>
+      <td class="${r.r1_app==null?'dim':(r.r1_app>0.5?'pos':(r.r1_app<-0.5?'neg':'dim'))}">${r.r1_app==null?'—':(r.r1_app>0?'+'+r.r1_app.toFixed(2):r.r1_app.toFixed(2))}</td>
       <td class="dim">${r.r1_putt==null?'—':(r.r1_putt>0?'+'+r.r1_putt.toFixed(2):r.r1_putt.toFixed(2))}</td>
       <td class="${r.regression==null?'':(r.regression>0.15?'pos':(r.regression<-0.15?'neg':''))}">${r.regression==null?'—':(r.regression>0?'+'+r.regression.toFixed(2):r.regression.toFixed(2))}</td>
       <td>${r.proj==null?'—':r.proj.toFixed(1)}</td>
@@ -390,8 +392,8 @@ const EXPORT={
   scan:()=>({rows:scanRows(), cols:[["player","Player"],["market","Market"],["source","Book"],
     ["american","Price"],["fair","Fair"],["ev","EV"],["kelly","Kelly"]]}),
   live:()=>({rows:sortRows((STATE.live||{}).rows||[],SORT.live||{key:"value",dir:-1}), cols:[["name","Player"],
-    ["pos","Pos"],["score","Score"],["salary","Salary"],["r1_sg","R_SG"],["r1_putt","R_Putt"],
-    ["regression","Regr"],["proj","Proj"],["ceiling","Ceiling"],
+    ["pos","Pos"],["score","Score"],["salary","Salary"],["r1_sg","R_SG"],["r1_app","R_App"],
+    ["r1_putt","R_Putt"],["regression","Regr"],["proj","Proj"],["ceiling","Ceiling"],
     ["value","Value"],["own_large","Own_pct"]]}),
   sim:()=>({rows:sortRows(STATE.sim||[],SORT.sim||{key:"optimal",dir:-1}), cols:[["name","Player"],
     ["salary","Salary"],["dk_points","ProjPts"],["optimal","Optimal_pct"],
