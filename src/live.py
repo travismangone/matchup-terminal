@@ -104,11 +104,27 @@ def draw_edges(waves: dict, hourly: dict) -> dict:
         for name, w in pw.items()
     }
 
-    def _wave_avg(wave):
-        vals = [pw[n] for n, v in waves.items() if v.get("wave") == wave and n in pw]
+    # Split the field into an early vs late group for the summary banner. On
+    # Thu/Fri that's the real AM/PM wave; on the weekend the cut field plays one
+    # continuous wave, so the wave labels are missing/uniform -> fall back to a
+    # tee-time-median split ("early tees" vs "late tees"), which is what the draw
+    # comes down to once wind builds through a single-wave day.
+    def _avg(names):
+        vals = [pw[n] for n in names if n in pw]
         return round(sum(vals) / len(vals), 1) if vals else None
 
-    ew, lw = _wave_avg("early"), _wave_avg("late")
+    early_n = [n for n, v in waves.items() if v.get("wave") == "early"]
+    late_n = [n for n, v in waves.items() if v.get("wave") == "late"]
+    split = "wave"
+    if not early_n or not late_n:                       # weekend / single wave
+        split = "teetime"
+        withhr = sorted((v["hour"], n) for n, v in waves.items()
+                        if v.get("hour") is not None and n in pw)
+        half = len(withhr) // 2
+        early_n = [n for _, n in withhr[:half]]
+        late_n = [n for _, n in withhr[half:]]
+
+    ew, lw = _avg(early_n), _avg(late_n)
     favored = None
     if ew is not None and lw is not None:
         favored = "early" if ew < lw else "late"
@@ -116,11 +132,10 @@ def draw_edges(waves: dict, hourly: dict) -> dict:
     return {
         "per_player": per_player,
         "summary": {
-            "early_wind": ew, "late_wind": lw, "favored": favored,
+            "early_wind": ew, "late_wind": lw, "favored": favored, "split": split,
             "edge_sg": spread,          # best-to-worst draw gap across the field, in SG
             "mean_wind": round(mean_wind, 1),
-            "n_early": sum(1 for v in waves.values() if v.get("wave") == "early"),
-            "n_late": sum(1 for v in waves.values() if v.get("wave") == "late"),
+            "n_early": len(early_n), "n_late": len(late_n),
             "precip": hourly.get("precip", 0.0),
         },
     }

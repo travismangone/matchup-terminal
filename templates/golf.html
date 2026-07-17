@@ -298,15 +298,17 @@ function renderLive(){
     `round, the GPP upside for a one-round slate. Default sort: value. `+
     (rn===4?`<b>R4 note:</b> final-round placement isn't layered in yet — treat as scoring only.`:``) :
     `No round is live yet — this activates once Round 1 is underway. During the event it shows the next round's plays.`;
-  // Draw (AM/PM wind) banner
+  // Draw (wind) banner — real AM/PM wave Thu/Fri, tee-time split on the weekend
   const dr=lv.draw, db=$("#drawBanner");
   if(dr && dr.favored){
-    const fav=dr.favored==='early'?'AM (early)':'PM (late)';
-    const dog=dr.favored==='early'?'PM (late)':'AM (early)';
+    const byWave=dr.split==='wave';
+    const eLab=byWave?'AM (early wave)':'early tee times', lLab=byWave?'PM (late wave)':'late tee times';
+    const fav=dr.favored==='early'?eLab:lLab, dog=dr.favored==='early'?lLab:eLab;
     db.className="draw-banner";
     db.innerHTML=`<b>R${rn} draw:</b> <span class="pos">${fav} favored</span> — `+
-      `AM window avg <b>${dr.early_wind}mph</b> vs PM <b>${dr.late_wind}mph</b> wind. `+
-      `${dog} plays the tougher air. Best-to-worst draw spread <b>${dr.edge_sg} SG</b>, folded into Proj.`+
+      `${eLab} avg <b>${dr.early_wind}mph</b> vs ${lLab} <b>${dr.late_wind}mph</b> wind`+
+      (byWave?``:` (weekend single wave — wind builds through the day)`)+`. `+
+      `${dog} play the tougher air. Best-to-worst draw spread <b>${dr.edge_sg} SG</b>, folded into Proj.`+
       (dr.precip>0.5?` Rain in the forecast (${dr.precip}mm).`:``);
   } else { db.className="draw-banner hide"; db.innerHTML=""; }
   const b=$("#liveBody"); b.innerHTML="";
