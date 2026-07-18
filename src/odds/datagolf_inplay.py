@@ -18,14 +18,19 @@ from ..match import match_player
 BASE = "https://feeds.datagolf.com"
 
 
+# Non-numeric position strings that mean a player is out of the tournament.
+_OUT_POS = {"CUT", "WD", "DQ", "DNS", "WAGR"}
+
+
 def fetch_inplay(roster_index: dict, tour: str = "pga") -> dict:
     """
-    Returns {"next_round": int|None, "players": {name: {...}}}.
+    Returns {"next_round": int|None, "players": {name: {...}}, "cut": {names}}.
     Player fields: current_pos, current_score, thru, round, r1..r4, make_cut.
+    "cut" = players who missed the cut / withdrew / were DQ'd (treat as out).
     """
     key = os.getenv("DATAGOLF_KEY")
     if not key:
-        return {"next_round": None, "players": {}}
+        return {"next_round": None, "players": {}, "cut": set()}
     try:
         r = requests.get(
             f"{BASE}/preds/in-play",
@@ -37,7 +42,7 @@ def fetch_inplay(roster_index: dict, tour: str = "pga") -> dict:
         rows = r.json().get("data", []) or []
     except Exception as e:
         print(f"[warn] datagolf in-play failed: {e}")
-        return {"next_round": None, "players": {}}
+        return {"next_round": None, "players": {}, "cut": set()}
 
     players: dict[str, dict] = {}
     round_has_score = {1: False, 2: False, 3: False, 4: False}
@@ -61,4 +66,10 @@ def fetch_inplay(roster_index: dict, tour: str = "pga") -> dict:
 
     # Next round = the first round nobody has a score in yet (1..4), else None.
     next_round = next((i for i in range(1, 5) if not round_has_score[i]), None)
-    return {"next_round": next_round, "players": players}
+
+    # Who's out by position: DataGolf flips a missed-cut/withdrawn player's
+    # current_pos to CUT/WD/DQ once official. (The dashboard layers on further
+    # signals — no next-round tee time, 0% make-cut — in _out_of_event.)
+    cut = {name for name, st in players.items()
+           if str(st.get("current_pos") or "").upper() in _OUT_POS}
+    return {"next_round": next_round, "players": players, "cut": cut}

@@ -71,6 +71,8 @@ def credit_status() -> dict:
 
 
 def _skill_source(flags: list[str]) -> str:
+    if "wd" in flags:            # missed cut / withdrew / DQ'd -> out, shown as WD
+        return "WD"
     if "no-data" in flags:
         return "none"
     if "owgr-est" in flags:
@@ -114,6 +116,29 @@ def build_state(demo: bool = False) -> dict:
                 field.append(onm)
         players = free_sg.build_field(field or odds_players)
 
+    # Flag anyone out of the tournament (missed cut / WD / DQ). We keep them in the
+    # lists — tagged WD with zeroed projections — rather than dropping them, so you
+    # can see who's out at a glance. Fetch live state once here (in-play + the next
+    # round's tee sheet) and hand both to _live_round to avoid re-fetching.
+    from .odds import datagolf_inplay, datagolf_field
+    from .match import build_index
+    ip = {"next_round": None, "players": {}, "cut": set()}
+    wv = {"date": None, "players": {}}
+    full_idx = None
+    wd: set = set()
+    if not demo and players:
+        full_idx = build_index([p.name for p in players])
+        ip = datagolf_inplay.fetch_inplay(full_idx)
+        nr = ip.get("next_round")
+        if nr:
+            wv = datagolf_field.fetch_waves(full_idx, nr)
+        wd = _out_of_event(players, dk_sal, full_idx, ip, wv)
+        for p in players:
+            if p.name in wd and "wd" not in p.flags:
+                p.flags.append("wd")
+        if wd:
+            print(f"[live] {len(wd)} players out (cut/WD/DQ) -> tagged WD, 0 proj")
+
     # Join DK salary onto each player.
     sal_by = {}
     for p in players:
@@ -122,9 +147,13 @@ def build_state(demo: bool = False) -> dict:
     pl_by = {p.name: p for p in players}
 
     flags_by = {p.name: p.flags for p in players}
-    skills_map = course_fit.build_skills(players)
+    # Only live players drive the sim/optimal/H2H — cut players occupying finishing
+    # positions would distort everyone else's win/top-N odds (badly so post-cut).
+    live_players = [p for p in players if p.name not in wd]
+    skills_map = course_fit.build_skills(live_players)
     sim = simulate.simulate(skills_map)
     rows = sim.as_dicts()
+    row_by = {r["name"]: r for r in rows}
     model_probs = {m: {r["name"]: r[m] for r in rows} for m in MARKETS}
 
     # Strokes-gained inputs (what drives the sim), sorted by course-fit skill.
@@ -147,43 +176,53 @@ def build_state(demo: bool = False) -> dict:
     skills = sorted((_srow(p) for p in players),
                     key=lambda r: r["adjusted"], reverse=True)
 
-    # Projections (+ salary).
+    # Projections (+ salary). Iterate the full field so out players (WD/cut) still
+    # show — zeroed, tagged WD, and sinking to the bottom.
     projections = []
-    for r in rows:
-        s = sal_by.get(r["name"])
+    for p in players:
+        r = row_by.get(p.name)
+        is_wd = p.name in wd or r is None
+        s = sal_by.get(p.name)
         projections.append({
-            "name": r["name"],
-            "win": r["win"], "top_5": r["top_5"], "top_10": r["top_10"],
-            "top_20": r["top_20"], "make_cut": r["make_cut"],
+            "name": p.name,
+            "win": 0 if is_wd else r["win"],
+            "top_5": 0 if is_wd else r["top_5"],
+            "top_10": 0 if is_wd else r["top_10"],
+            "top_20": 0 if is_wd else r["top_20"],
+            "make_cut": 0 if is_wd else r["make_cut"],
             "salary": s["salary"] if s else None,
-            "src": _skill_source(flags_by.get(r["name"], [])),
+            "src": _skill_source(flags_by.get(p.name, [])),
         })
 
     # DFS value view — projected DK placement points and value per $1k.
     dfs = []
-    for r in rows:
-        s = sal_by.get(r["name"])
+    for p in players:
+        r = row_by.get(p.name)
+        is_wd = p.name in wd or r is None
+        s = sal_by.get(p.name)
         salary = s["salary"] if s else None
-        pts = r["dk_points"]
-        src = _skill_source(flags_by.get(r["name"], []))
+        src = _skill_source(flags_by.get(p.name, []))
+        pts = 0.0 if is_wd else r["dk_points"]     # out -> no points left to score
         # DK's own PPG is a garbage placeholder for un-rated club pros / amateurs
         # (e.g. 86 for a mini-tour player) — suppress it for no-data players so it
         # doesn't read as a real projection, matching their blanked BoB%/Bogey%.
-        dkppg = None if src == "none" else (s["dkppg"] if s else None)
-        o = dk.lookup(r["name"], own_map, own_idx) if own_idx else None
+        dkppg = None if src in ("none", "WD") else (s["dkppg"] if s else None)
+        o = dk.lookup(p.name, own_map, own_idx) if own_idx else None
         dfs.append({
-            "name": r["name"],
+            "name": p.name,
             "salary": salary,
             "dk_points": round(pts, 1),
-            "dk_placement": round(r["dk_placement"], 1),
-            "dk_scoring": round(r["dk_scoring"], 1),
-            "value": round(pts / (salary / 1000.0), 2) if salary else None,
+            "dk_placement": 0.0 if is_wd else round(r["dk_placement"], 1),
+            "dk_scoring": 0.0 if is_wd else round(r["dk_scoring"], 1),
+            "value": 0.0 if is_wd else (round(pts / (salary / 1000.0), 2) if salary else None),
             "own_large": o["own_large"] if o else None,   # GPP (large-field) ownership %
             "own_small": o["own_small"] if o else None,
             "dkppg": dkppg,
-            "birdie_pct": getattr(pl_by.get(r["name"]), "birdie_pct", None),
-            "bogey_pct": getattr(pl_by.get(r["name"]), "bogey_pct", None),
-            "win": r["win"], "top_20": r["top_20"], "make_cut": r["make_cut"],
+            "birdie_pct": getattr(pl_by.get(p.name), "birdie_pct", None),
+            "bogey_pct": getattr(pl_by.get(p.name), "bogey_pct", None),
+            "win": 0 if is_wd else r["win"],
+            "top_20": 0 if is_wd else r["top_20"],
+            "make_cut": 0 if is_wd else r["make_cut"],
             "src": src,
         })
     dfs = [d for d in dfs if d["salary"]]      # DFS view = rosterable players only
@@ -194,7 +233,7 @@ def build_state(demo: bool = False) -> dict:
     sim_rows = []
     if not demo:
         salaries = {p.name: sal_by[p.name]["salary"]
-                    for p in players if sal_by.get(p.name)}
+                    for p in players if sal_by.get(p.name) and p.name not in wd}
         from . import optimal
         exposure = optimal.compute(skills_map, salaries)
         dfs_by = {d["name"]: d for d in dfs}
@@ -246,7 +285,7 @@ def build_state(demo: bool = False) -> dict:
         "projections": projections,
         "dfs": dfs,
         "sim": sim_rows,
-        "live": _live_round(players, skills_map, sal_by, own_map, own_idx, demo),
+        "live": _live_round(live_players, skills_map, sal_by, own_map, own_idx, demo, ip, full_idx, wv),
         "plays": plays_by_market,
         "ev_scan": ev_scan,
         "h2h": h2h,
@@ -257,17 +296,59 @@ def build_state(demo: bool = False) -> dict:
     }
 
 
-def _live_round(players, skills_map, sal_by, own_map, own_idx, demo) -> dict:
+def _out_of_event(players, dk_sal, idx, ip, wv) -> set:
+    """Names to drop from the whole model — missed cut / withdrew / DQ'd. Combines,
+    most authoritative first:
+      1. DK CSV Status column (WD/CUT/DQ) — set the moment DK marks it.
+      2. DataGolf in-play position flipped to CUT/WD/DQ.
+      3. No next-round tee time, once the tee sheet is actually posted (the
+         definitive cut signal — the field-updates sheet only lists who's playing).
+      4. Backstop: a parseable 0% make-cut once a weekend round is next.
+    Nothing fires until a real signal exists, so pre-cut the full field is kept."""
+    from .match import match_player
+
+    out = set(ip.get("cut", set()))                       # (2) position-based
+
+    dk_out = {v["name"] for v in dk_sal.values()          # (1) DK Status
+              if v.get("status") in {"WD", "CUT", "DQ", "DNS"}}
+    out |= {match_player(n, idx) or n for n in dk_out}
+
+    nr = ip.get("next_round")
+    teed = wv.get("players", {}) if wv else {}
+    # (3) Only trust "no tee time" once a real weekend sheet is posted (guards the
+    # transitional window where the cut is done but pairings aren't out yet).
+    if nr and nr >= 3 and len(teed) >= 50:
+        out |= {p.name for p in players if p.name not in teed}
+
+    if nr and nr >= 3:                                    # (4) make-cut backstop
+        for name, st in ip.get("players", {}).items():
+            mc = _as_float(st.get("make_cut"))
+            if mc is not None and mc <= 0:
+                out.add(name)
+    return out
+
+
+def _as_float(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _live_round(players, skills_map, sal_by, own_map, own_idx, demo, ip=None, idx=None, wv=None) -> dict:
     """In-tournament next-round DFS: current standing + projected next-round DK
-    points (single-round scoring) + value/ceiling. Empty until a round is live."""
+    points (single-round scoring) + value/ceiling. Empty until a round is live.
+    `ip`/`idx` are the in-play result + name index already fetched by build_state."""
     if demo:
         return {"next_round": None, "rows": []}
     from .odds import datagolf_inplay, datagolf_livestats, datagolf_field
     from .match import build_index
     from . import live, dk, weather
 
-    idx = build_index([p.name for p in players])
-    ip = datagolf_inplay.fetch_inplay(idx)
+    if idx is None:
+        idx = build_index([p.name for p in players])
+    if ip is None:
+        ip = datagolf_inplay.fetch_inplay(idx)
     nr = ip.get("next_round")
     if not nr or not ip.get("players"):
         return {"next_round": None, "rows": []}
@@ -279,7 +360,8 @@ def _live_round(players, skills_map, sal_by, own_map, own_idx, demo) -> dict:
 
     # Draw: pair each player's own next-round tee window with the wind forecast;
     # the calmer window gets a positive SG nudge (captures earliest-tee edge too).
-    wv = datagolf_field.fetch_waves(idx, nr)
+    if wv is None:
+        wv = datagolf_field.fetch_waves(idx, nr)
     waves = wv.get("players", {})
     hourly = weather.fetch_hourly(wv["date"]) if wv.get("date") and waves else None
     draw = live.draw_edges(waves, hourly) if hourly else {}

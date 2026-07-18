@@ -34,6 +34,7 @@ def load(path: str | None = None) -> dict[str, dict]:
                 "salary": _int(row.get("Salary")),
                 "dk_id": (row.get("ID") or "").strip(),
                 "dkppg": _float(row.get("AvgPointsPerGame")),
+                "status": (row.get("Status") or "").strip().upper(),  # "", WD, CUT, DQ...
             }
     return out
 
