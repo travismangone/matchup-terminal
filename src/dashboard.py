@@ -370,10 +370,23 @@ def _live_round(players, skills_map, sal_by, own_map, own_idx, demo, ip=None, id
     # Fold the draw nudge into the projection mean (on top of the regression expectation).
     proj_skills = {name: reg[name]["expected"] + per_player.get(name, 0.0)
                    for name in skills_map}
-    proj = live.project_next_round(proj_skills)
+    # R4: finishing position is scored, so sim the tournament to the finish from
+    # each player's 54-hole score. Earlier rounds are single-round scoring only.
+    if nr >= 4:
+        cur_scores = {}
+        for name in proj_skills:
+            st = ip["players"].get(name)
+            cs = _parse_score(st.get("current_score")) if st else None
+            if cs is not None:
+                cur_scores[name] = cs
+        proj = live.project_final_round(proj_skills, cur_scores)
+    else:
+        proj = live.project_next_round(proj_skills)
 
     rows = []
     for p in players:
+        if "wd" in p.flags:             # cut/withdrawn -> no next round to project
+            continue
         st = ip["players"].get(p.name)
         if not st:                      # only golfers actually in the field
             continue
@@ -394,11 +407,28 @@ def _live_round(players, skills_map, sal_by, own_map, own_idx, demo, ip=None, id
             "r1_putt": rg.get("r1_putt"), "regression": rg.get("regression"),
             "wave": w.get("wave"), "teetime": w.get("teetime"),
             "draw": round(per_player.get(p.name, 0.0), 2) if per_player else None,
+            "place": pr.get("place_ev") if pr else None,   # R4 finishing-position pts (None pre-R4)
+            "hole": pr.get("hole_ev") if pr else None,     # R4 hole-scoring pts
             "own_large": o["own_large"] if o else None,
             "src": _skill_source(p.flags),
         })
     rows.sort(key=lambda r: (r["value"] or 0), reverse=True)
     return {"next_round": nr, "rows": rows, "draw": draw.get("summary")}
+
+
+def _parse_score(v):
+    """To-par score -> float. Handles 'E', '+2', '-10', ints, and None."""
+    if v is None:
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    s = str(v).strip().upper()
+    if s in ("E", "EVEN", ""):
+        return 0.0
+    try:
+        return float(s.replace("+", ""))
+    except ValueError:
+        return None
 
 
 def _coverage(players) -> dict:

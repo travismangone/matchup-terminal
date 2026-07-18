@@ -141,6 +141,30 @@ DK_PLACEMENT_POINTS = (
 DK_SCORING = {"base": 11.5, "slope": 3.6, "floor": -3.0, "cap": 30.0}
 
 # --------------------------------------------------------------------------
+# Round 4 showdown — finishing position is scored on top of the round's hole
+# scoring, so an R4 projection must sim the tournament to the finish (each
+# player's 54-hole score + a simulated R4) and award DK's R4 placement points.
+# --------------------------------------------------------------------------
+# DK R4 showdown finishing-position table (ties get the better position's points,
+# not averaged — handled in the sim). 51st+ = 0.
+DK_R4_PLACEMENT = (
+    [13, 10, 9, 8.5, 8, 7.5, 7, 6.5, 6, 5.5]   # 1st..10th
+    + [5] * 5                                   # 11-15
+    + [4] * 5                                   # 16-20
+    + [3] * 5                                   # 21-25
+    + [2] * 5                                   # 26-30
+    + [1] * 10                                  # 31-40
+    + [0.5] * 10                                # 41-50
+)
+# Hole scoring on the TRUE showdown per-hole scale (birdie +5.75, par +1.5,
+# bogey -1.8, eagle +11, double -3.9, + bogey-free / 3-birdie-streak bonuses),
+# so it lands on the same DK-point scale as placement and the two add correctly.
+# A field-average links round ≈ +30; slope lifted to ~4.5/SG to absorb the
+# bonus convexity that favors low rounds. (The compressed DK_SCORING above is a
+# relative-ranking model for R1-R3 single-round slates and is left untouched.)
+DK_R4_SCORING = {"base": 30.0, "slope": 4.5, "floor": 12.0, "cap": 58.0}
+
+# --------------------------------------------------------------------------
 # Draw (AM/PM wave) modeling — the biggest live edge at a links major.
 # At The Open the wind often differs sharply between the early and late waves;
 # whichever wave plays the calmer window has a real scoring advantage the skill

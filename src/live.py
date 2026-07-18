@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from config import SIM, DK_SCORING, DRAW
+from config import SIM, DK_SCORING, DRAW, DK_R4_PLACEMENT, DK_R4_SCORING
 
 # Single-round upside cap. The tournament model caps a round's contribution at ~30
 # (to tame outliers in a 4-round sum), but a single showdown round genuinely tops
@@ -160,5 +160,68 @@ def project_next_round(skills: dict[str, float], n_sims: int = 4000) -> dict[str
             "proj": round(float(col.mean()), 1),
             "ceiling": round(float(np.percentile(col, 85)), 1),
             "floor": round(float(np.percentile(col, 15)), 1),
+        }
+    return out
+
+
+def _r4_place_points(n: int) -> np.ndarray:
+    """0-based finishing rank -> DK R4 placement points (0 beyond the table)."""
+    pts = np.zeros(n, dtype=np.float32)
+    for i in range(min(n, len(DK_R4_PLACEMENT))):
+        pts[i] = DK_R4_PLACEMENT[i]
+    return pts
+
+
+def project_final_round(skills: dict[str, float], current_scores: dict[str, float],
+                        n_sims: int = 5000) -> dict[str, dict]:
+    """
+    Round 4 projection = simulated R4 hole scoring + finishing-position points.
+
+    For each sim we draw every player's R4 SG, map it to hole-scoring points on
+    the true showdown scale, and add their simulated R4 (to par) to their 54-hole
+    score to get a final 72-hole total. Ranking the field gives each player's
+    finishing position -> DK R4 placement points (ties take the better position,
+    per the rules). proj/ceiling/floor come from the distribution of the sum.
+
+    skills: form + draw adjusted expected R4 SG per player.
+    current_scores: each player's to-par score through 54 holes.
+    """
+    names = [n for n in skills if n in current_scores]
+    if not names:
+        return {}
+    n = len(names)
+    mu = np.array([skills[nm] for nm in names], dtype=np.float32)
+    cur = np.array([current_scores[nm] for nm in names], dtype=np.float32)
+    sigma = SIM["round_sigma"] * SIM["wind_factor"]
+    rng = np.random.default_rng(SIM["seed"])
+    place_pts = _r4_place_points(n)
+
+    hole_all = np.empty((n_sims, n), dtype=np.float32)
+    place_all = np.empty((n_sims, n), dtype=np.float32)
+    CH = 1000                                   # chunk sims to bound the n×n rank memory
+    for start in range(0, n_sims, CH):
+        m = min(CH, n_sims - start)
+        sg = mu[None, :] + rng.normal(0.0, sigma, size=(m, n)).astype(np.float32)
+        hole = np.clip(DK_R4_SCORING["base"] + DK_R4_SCORING["slope"] * sg,
+                       DK_R4_SCORING["floor"], DK_R4_SCORING["cap"])
+        # Final 72-hole score to par; the field's R4 scoring average is a constant
+        # that cancels in the ranking, so R4 to-par ≈ -SG is all we need.
+        final = cur[None, :] - sg
+        # 0-based finishing rank with ties = number of players strictly better.
+        rank0 = (final[:, None, :] < final[:, :, None]).sum(axis=2)
+        np.clip(rank0, 0, n - 1, out=rank0)
+        hole_all[start:start + m] = hole
+        place_all[start:start + m] = place_pts[rank0]
+
+    total = hole_all + place_all
+    out: dict[str, dict] = {}
+    for i, nm in enumerate(names):
+        col = total[:, i]
+        out[nm] = {
+            "proj": round(float(col.mean()), 1),
+            "ceiling": round(float(np.percentile(col, 85)), 1),
+            "floor": round(float(np.percentile(col, 15)), 1),
+            "hole_ev": round(float(hole_all[:, i].mean()), 1),
+            "place_ev": round(float(place_all[:, i].mean()), 1),
         }
     return out

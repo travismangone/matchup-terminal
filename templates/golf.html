@@ -192,7 +192,8 @@
       <th data-k="r1_putt" title="Putting strokes gained last round — the least repeatable, most fluky component">Putt</th>
       <th data-k="regression" title="Expected next-round SG minus last round's actual. Green = positive regression (played better than they scored — bounce-back). Red = negative regression (scored better than they played — fade).">Regr</th>
       <th data-k="draw" title="Draw edge: SG nudge from the wind forecast over this golfer's own tee-to-finish window vs. the field. Green = calmer window (advantage), red = windier. Already baked into Proj.">Draw</th>
-      <th data-k="proj" title="Projected DK scoring points for the next round (form-adjusted for regression + draw)">Proj</th>
+      <th data-k="place" title="R4 only: expected DK finishing-position points (1st +13, 2nd +10 … 41-50th +0.5), from simulating the tournament to the finish off the current 54-hole score. Already included in Proj.">Place</th>
+      <th data-k="proj" title="Projected DK points for the next round (form-adjusted for regression + draw). R4 adds finishing-position points and is on DK's true showdown per-hole scale, so R4 numbers run higher than R1-R3.">Proj</th>
       <th data-k="ceiling" title="85th-percentile round — the GPP upside">Ceiling</th>
       <th data-k="value" title="Proj points per $1k">Value</th>
       <th data-k="own_large" title="Projected ownership">Own%</th>
@@ -290,14 +291,18 @@ function renderLive(){
   markHeader("live");
   const lv=STATE.live||{}, rows=lv.rows||[];
   const rn=lv.next_round;
+  const r4 = rn===4;
   $("#liveNote").innerHTML = rn ?
-    `<b>Round ${rn}</b> single-round showdown — projected DK <i>scoring</i> points for the next round `+
-    `(no placement; that's a full-tournament thing). <b>Regr</b> = regression signal: `+
-    `<span class="pos">green</span> golfers played better than they scored last round (ball-striking &gt; putting — `+
-    `<b>bounce-back</b>), <span class="neg">red</span> ones scored better than they played (putter got hot — <b>fade</b>). `+
-    `The <b>Proj</b> is already form-adjusted for it, plus the <b>Draw</b> (wind) edge. <b>Ceiling</b> = 85th-percentile `+
-    `round, the GPP upside for a one-round slate. Default sort: value. `+
-    (rn===4?`<b>R4 note:</b> final-round placement isn't layered in yet — treat as scoring only.`:``) :
+    `<b>Round ${rn}</b> showdown — projected DK points for the next round. `+
+    (r4
+      ? `<b>Final round: finishing position is scored.</b> <b>Proj</b> = simulated R4 hole scoring `+
+        `<i>plus</i> DK finishing-position points (<b>Place</b>), from playing the tournament out off each `+
+        `golfer's 54-hole score. R4 uses DK's true showdown per-hole scale, so these run higher than R1-R3. `
+      : `Single-round hole <i>scoring</i> only — no placement until the final round. `)+
+    `<b>Regr</b> = regression: <span class="pos">green</span> played better than they scored last round `+
+    `(ball-striking &gt; putting — <b>bounce-back</b>), <span class="neg">red</span> scored better than they played `+
+    `(hot putter — <b>fade</b>). Proj is form-adjusted for it, plus the <b>Draw</b> (wind) edge`+
+    (r4?` and finishing position`:``)+`. <b>Ceiling</b> = 85th-percentile outcome. Default sort: value.` :
     `No round is live yet — this activates once Round 1 is underway. During the event it shows the next round's plays.`;
   // Draw (wind) banner — real AM/PM wave Thu/Fri, tee-time split on the weekend
   const dr=lv.draw, db=$("#drawBanner");
@@ -326,6 +331,7 @@ function renderLive(){
       <td class="dim">${r.r1_putt==null?'—':(r.r1_putt>0?'+'+r.r1_putt.toFixed(2):r.r1_putt.toFixed(2))}</td>
       <td class="${r.regression==null?'':(r.regression>0.15?'pos':(r.regression<-0.15?'neg':''))}">${r.regression==null?'—':(r.regression>0?'+'+r.regression.toFixed(2):r.regression.toFixed(2))}</td>
       <td class="${r.draw==null?'':(r.draw>0.05?'pos':(r.draw<-0.05?'neg':''))}">${r.draw==null?'—':(r.draw>0?'+'+r.draw.toFixed(2):r.draw.toFixed(2))}</td>
+      <td class="${r.place>2?'pos':'dim'}">${r.place==null?'—':r.place.toFixed(1)}</td>
       <td>${r.proj==null?'—':r.proj.toFixed(1)}</td>
       <td class="pos">${r.ceiling==null?'—':r.ceiling.toFixed(1)}</td>
       <td class="${r.value>=2.6?'pos':''}">${r.value==null?'—':r.value.toFixed(2)}</td>
@@ -417,7 +423,7 @@ const EXPORT={
   live:()=>({rows:sortRows((STATE.live||{}).rows||[],SORT.live||{key:"value",dir:-1}), cols:[["name","Player"],
     ["pos","Pos"],["score","Score"],["teetime","Tee"],["wave","Wave"],["salary","Salary"],
     ["r1_sg","R_SG"],["r1_app","R_App"],["r1_putt","R_Putt"],["regression","Regr"],["draw","Draw"],
-    ["proj","Proj"],["ceiling","Ceiling"],
+    ["place","Place"],["hole","HolePts"],["proj","Proj"],["ceiling","Ceiling"],
     ["value","Value"],["own_large","Own_pct"]]}),
   sim:()=>({rows:sortRows(STATE.sim||[],SORT.sim||{key:"optimal",dir:-1}), cols:[["name","Player"],
     ["salary","Salary"],["dk_points","ProjPts"],["optimal","Optimal_pct"],
