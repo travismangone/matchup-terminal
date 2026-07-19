@@ -327,9 +327,9 @@ function renderLive(){
       <td class="dim">${r.teetime??'—'}</td>
       <td class="dim">${r.wave==null?'—':(r.wave==='early'?'AM':'PM')}</td>
       <td>${money(r.salary)}</td>
-      <td class="dim">${r.r1_sg==null?'—':(r.r1_sg>0?'+'+r.r1_sg.toFixed(2):r.r1_sg.toFixed(2))}</td>
+      <td class="${r.r1_sg==null?'dim':(r.r1_sg>1?'pos':(r.r1_sg<-1?'neg':'dim'))}">${r.r1_sg==null?'—':(r.r1_sg>0?'+'+r.r1_sg.toFixed(2):r.r1_sg.toFixed(2))}</td>
       <td class="${r.r1_app==null?'dim':(r.r1_app>0.5?'pos':(r.r1_app<-0.5?'neg':'dim'))}">${r.r1_app==null?'—':(r.r1_app>0?'+'+r.r1_app.toFixed(2):r.r1_app.toFixed(2))}</td>
-      <td class="dim">${r.r1_putt==null?'—':(r.r1_putt>0?'+'+r.r1_putt.toFixed(2):r.r1_putt.toFixed(2))}</td>
+      <td class="${r.r1_putt==null?'dim':(r.r1_putt>0.5?'pos':(r.r1_putt<-0.5?'neg':'dim'))}">${r.r1_putt==null?'—':(r.r1_putt>0?'+'+r.r1_putt.toFixed(2):r.r1_putt.toFixed(2))}</td>
       <td class="${r.regression==null?'':(r.regression>0.15?'pos':(r.regression<-0.15?'neg':''))}">${r.regression==null?'—':(r.regression>0?'+'+r.regression.toFixed(2):r.regression.toFixed(2))}</td>
       <td class="${r.draw==null?'':(r.draw>0.05?'pos':(r.draw<-0.05?'neg':''))}">${r.draw==null?'—':(r.draw>0?'+'+r.draw.toFixed(2):r.draw.toFixed(2))}</td>
       <td class="${r.place>2?'pos':'dim'}">${r.place==null?'—':r.place.toFixed(1)}</td>
