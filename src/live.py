@@ -38,20 +38,22 @@ PUTT_REPEAT = 0.35
 BASELINE_WEIGHT = 0.55
 
 
-def regression_scores(skills: dict[str, float], last_round: dict[str, dict]) -> dict[str, dict]:
+def regression_scores(skills: dict[str, float], recent_sg: dict[str, dict]) -> dict[str, dict]:
     """
-    Who over/under-performed last round, and which way they regress next round.
+    Who over/under-performed their tournament SG so far, and which way they regress
+    next round. `recent_sg` is the recency-weighted blend of this event's completed
+    rounds (R1-R3 for an R4 projection), so one fluky round no longer dominates.
 
       sustainable = OTT + APP + 0.6·ARG + 0.35·Putt          (discount the fluky bits)
       expected    = 0.55·baseline_skill + 0.45·sustainable   (skill + real form)
-      regression  = expected − last_round_total
+      regression  = expected − blended_total
 
     regression > 0  -> POSITIVE regression (scored worse than they played; bounce-back)
     regression < 0  -> NEGATIVE regression (scored better than they played; fade)
     """
     out: dict[str, dict] = {}
     for name, skill in skills.items():
-        s = last_round.get(name)
+        s = recent_sg.get(name)
         if not s:
             out[name] = {"r1_sg": None, "r1_putt": None,
                          "expected": skill, "regression": None}

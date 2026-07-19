@@ -51,6 +51,41 @@ def fetch_round_stats(roster_index: dict, rnd: int, tour: str = "pga") -> dict:
     return out
 
 
+def fetch_blended_stats(roster_index: dict, through_round: int,
+                        recency: float = 1.5, tour: str = "pga") -> dict:
+    """
+    Blend per-round SG components across rounds 1..through_round, weighting recent
+    rounds more (weight = recency ** (round-1)). This is the tournament-to-date
+    form signal for the regression model — steadier than a single round, but still
+    leaning on how a player has trended into the next round. Only rounds a player
+    actually has stats for count toward their blend.
+    """
+    if through_round < 1:
+        return {}
+    per_round = {r: fetch_round_stats(roster_index, r, tour)
+                 for r in range(1, through_round + 1)}
+    weights = {r: recency ** (r - 1) for r in per_round}
+
+    out: dict[str, dict] = {}
+    names = {n for rd in per_round.values() for n in rd}
+    for name in names:
+        acc = {"ott": 0.0, "app": 0.0, "arg": 0.0, "putt": 0.0, "total": 0.0}
+        wsum = 0.0
+        for r, rd in per_round.items():
+            s = rd.get(name)
+            if not s:
+                continue
+            w = weights[r]
+            for k in acc:
+                acc[k] += w * s[k]
+            wsum += w
+        if wsum <= 0:
+            continue
+        out[name] = {k: v / wsum for k, v in acc.items()}
+        out[name]["rounds"] = sum(1 for rd in per_round.values() if name in rd)
+    return out
+
+
 def _f(v):
     try:
         return float(v)

@@ -187,10 +187,10 @@
       <th data-k="teetime" title="Next-round tee time (local)">Tee</th>
       <th data-k="wave" title="AM (early) or PM (late) wave for the next round">Wave</th>
       <th data-k="salary">Salary</th>
-      <th data-k="r1_sg" title="Strokes gained in the last completed round">R-SG</th>
-      <th data-k="r1_app" title="Approach strokes gained last round — the most repeatable component; the engine of a real, sustainable round">App</th>
-      <th data-k="r1_putt" title="Putting strokes gained last round — the least repeatable, most fluky component">Putt</th>
-      <th data-k="regression" title="Expected next-round SG minus last round's actual. Green = positive regression (played better than they scored — bounce-back). Red = negative regression (scored better than they played — fade).">Regr</th>
+      <th data-k="r1_sg" title="Tournament SG so far — recency-weighted blend of this event's completed rounds (R1-R3 for R4)">SG</th>
+      <th data-k="r1_app" title="Approach SG (tournament blend) — the most repeatable component; the engine of a real, sustainable week">App</th>
+      <th data-k="r1_putt" title="Putting SG (tournament blend) — the least repeatable, most fluky component">Putt</th>
+      <th data-k="regression" title="Expected next-round SG minus tournament SG so far (R1-R3 blend). Green = positive regression (playing better than scoring — bounce-back). Red = negative regression (scoring better than playing — fade).">Regr</th>
       <th data-k="draw" title="Draw edge: SG nudge from the wind forecast over this golfer's own tee-to-finish window vs. the field. Green = calmer window (advantage), red = windier. Already baked into Proj.">Draw</th>
       <th data-k="place" title="R4 only: expected DK finishing-position points (1st +13, 2nd +10 … 41-50th +0.5), from simulating the tournament to the finish off the current 54-hole score. Already included in Proj.">Place</th>
       <th data-k="proj" title="Projected DK points for the next round (form-adjusted for regression + draw). R4 adds finishing-position points and is on DK's true showdown per-hole scale, so R4 numbers run higher than R1-R3.">Proj</th>
@@ -299,8 +299,9 @@ function renderLive(){
         `<i>plus</i> DK finishing-position points (<b>Place</b>), from playing the tournament out off each `+
         `golfer's 54-hole score. R4 uses DK's true showdown per-hole scale, so these run higher than R1-R3. `
       : `Single-round hole <i>scoring</i> only — no placement until the final round. `)+
-    `<b>Regr</b> = regression: <span class="pos">green</span> played better than they scored last round `+
-    `(ball-striking &gt; putting — <b>bounce-back</b>), <span class="neg">red</span> scored better than they played `+
+    `<b>Regr</b> = regression off tournament SG so far (recency-weighted R1-R3 blend): `+
+    `<span class="pos">green</span> playing better than scoring `+
+    `(ball-striking &gt; putting — <b>bounce-back</b>), <span class="neg">red</span> scoring better than playing `+
     `(hot putter — <b>fade</b>). Proj is form-adjusted for it, plus the <b>Draw</b> (wind) edge`+
     (r4?` and finishing position`:``)+`. <b>Ceiling</b> = 85th-percentile outcome. Default sort: value.` :
     `No round is live yet — this activates once Round 1 is underway. During the event it shows the next round's plays.`;

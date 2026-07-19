@@ -353,10 +353,11 @@ def _live_round(players, skills_map, sal_by, own_map, own_idx, demo, ip=None, id
     if not nr or not ip.get("players"):
         return {"next_round": None, "rows": []}
 
-    # Regression: pull last completed round's SG components, blend the sustainable
-    # part with season skill -> form-adjusted expectation drives the R2 projection.
-    last_round = datagolf_livestats.fetch_round_stats(idx, nr - 1) if nr > 1 else {}
-    reg = live.regression_scores(skills_map, last_round)
+    # Regression: blend this tournament's completed rounds (recency-weighted) into
+    # a form signal, split its sustainable part from the fluky part, and combine
+    # with season skill -> the form-adjusted expectation that drives the projection.
+    recent_sg = datagolf_livestats.fetch_blended_stats(idx, nr - 1) if nr > 1 else {}
+    reg = live.regression_scores(skills_map, recent_sg)
 
     # Draw: pair each player's own next-round tee window with the wind forecast;
     # the calmer window gets a positive SG nudge (captures earliest-tee edge too).
