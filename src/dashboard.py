@@ -347,7 +347,7 @@ def _out_of_event(players, dk_sal, idx, ip, wv) -> set:
     out = set(ip.get("cut", set()))                       # (2) position-based
 
     dk_out = {v["name"] for v in dk_sal.values()          # (1) DK Status
-              if v.get("status") in {"WD", "CUT", "DQ", "DNS"}}
+              if v.get("status") in {"WD", "CUT", "DQ", "DNS", "OUT"}}
     out |= {match_player(n, idx) or n for n in dk_out}
 
     nr = ip.get("next_round")

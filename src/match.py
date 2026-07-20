@@ -26,8 +26,18 @@ def normalize_name(name: str) -> str:
     name = "".join(
         c for c in unicodedata.normalize("NFKD", name) if not unicodedata.combining(c)
     )
+    # Fold ligatures / non-decomposing letters that NFKD leaves intact — Nordic
+    # names (Højgaard, Olesen, Åberg) are common in the field. Without this, ø
+    # survives accent-stripping and the player never matches his DK salary.
+    name = (name.replace("ø", "o").replace("Ø", "O")
+                .replace("æ", "ae").replace("Æ", "AE")
+                .replace("œ", "oe").replace("Œ", "OE")
+                .replace("ð", "d").replace("Ð", "D")
+                .replace("þ", "th").replace("Þ", "TH")
+                .replace("ł", "l").replace("Ł", "L")
+                .replace("ß", "ss"))
     # Drop suffixes / punctuation.
-    name = name.lower().replace(".", "").replace("-", " ")
+    name = name.lower().replace(".", "").replace("-", " ").replace("'", "")
     for suffix in (" jr", " sr", " iii", " ii", " iv"):
         if name.endswith(suffix):
             name = name[: -len(suffix)]
