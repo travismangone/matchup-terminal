@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Matchup Terminal — Backtest</title>
+<style>
+  :root {
+    --bg: #0d0f12; --panel: #14181d; --panel-2: #1a2027;
+    --border: #232a33; --text: #d8dde3; --muted: #8a93a0;
+    --accent: #f5a623; --accent-dim: #b07a1a;
+    --good: #4caf50; --bad: #ef5350; --link: #8ab4f8;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text);
+    font-family: "JetBrains Mono","SF Mono",Menlo,Consolas,monospace;
+    font-size: 13px; line-height: 1.45; }
+  header { padding: 14px 22px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 18px; background: var(--panel); }
+  header h1 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--accent); }
+  header .sub { color: var(--muted); font-size: 12px; }
+  main { padding: 18px 22px 60px; max-width: 1200px; margin: 0 auto; }
+  .term-nav { display: flex; gap: 2px; padding: 0 16px; background: #0d0f12;
+    border-bottom: 1px solid #23262b;
+    font: 600 12.5px ui-monospace,SFMono-Regular,monospace; letter-spacing: .5px; }
+  .term-nav a { padding: 11px 16px; color: #6b7280; text-decoration: none;
+    border-bottom: 2px solid transparent; }
+  .term-nav a:hover { color: #cbd5e1; }
+  .term-nav a.on { color: #e8a33d; border-bottom-color: #e8a33d; }
+  .controls { display: flex; gap: 12px; align-items: center; margin-bottom: 18px; flex-wrap: wrap; }
+  .controls label { color: var(--muted); font-size: 12px; }
+  .controls input[type="date"] { background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--border); padding: 6px 8px; border-radius: 4px;
+    font-family: inherit; font-size: 13px; }
+  button { background: var(--accent); color: #1a1300; border: 0; padding: 7px 14px;
+    border-radius: 4px; font-family: inherit; font-weight: 600; font-size: 12px;
+    text-transform: uppercase; letter-spacing: .06em; cursor: pointer; }
+  button:disabled { background: var(--accent-dim); cursor: not-allowed; opacity: .7; }
+  button.secondary { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); }
+  .status-pill { display: inline-block; padding: 3px 9px; border-radius: 10px;
+    font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+    background: var(--panel-2); color: var(--muted); border: 1px solid var(--border); }
+  .status-pill.running { color: var(--accent); border-color: var(--accent); }
+  .status-pill.done    { color: var(--good);   border-color: var(--good); }
+  .status-pill.error   { color: var(--bad);    border-color: var(--bad); }
+  .panel { background: var(--panel); border: 1px solid var(--border);
+    border-radius: 6px; margin-bottom: 16px; overflow: hidden; }
+  .panel-header { padding: 8px 14px; border-bottom: 1px solid var(--border);
+    color: var(--accent); font-size: 11px; text-transform: uppercase;
+    letter-spacing: .08em; background: var(--panel-2); }
+  .panel-body { padding: 12px 14px; }
+  pre.log { margin: 0; padding: 10px 14px; background: #07090b; color: #b6bdc6;
+    font-size: 12px; max-height: 220px; overflow: auto;
+    white-space: pre-wrap; word-break: break-word; }
+
+  /* Metric cards */
+  .metric-grid { display: grid; gap: 12px;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+  .mcard { background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 5px; padding: 12px 14px; }
+  .mcard .label { color: var(--muted); font-size: 11px; text-transform: uppercase;
+    letter-spacing: .06em; margin-bottom: 6px; }
+  .mcard .value { font-size: 22px; font-weight: 700; color: var(--text);
+    font-variant-numeric: tabular-nums; }
+  .mcard .sub { color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .mcard.good .value { color: var(--good); }
+  .mcard.bad  .value { color: var(--bad); }
+
+  /* Tables */
+  table.bt { width: 100%; border-collapse: collapse; font-size: 12px; }
+  table.bt th, table.bt td { padding: 6px 10px; border-bottom: 1px solid var(--border); text-align: left; }
+  table.bt th { background: var(--panel-2); color: var(--muted); font-weight: 600;
+    text-transform: uppercase; letter-spacing: .06em; font-size: 11px; }
+  table.bt th.num, table.bt td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  table.bt tr:hover td { background: #11161c; }
+
+  /* Calibration bars */
+  .cal-bar-wrap { background: #07090b; border-radius: 3px; height: 8px; min-width: 80px; overflow: hidden; }
+  .cal-bar { height: 100%; border-radius: 3px; }
+  .hint { color: var(--muted); font-size: 11px; margin-top: 8px; line-height: 1.6; }
+  a { color: var(--link); }
+  .empty-note { color: var(--muted); padding: 20px 0; text-align: center; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="term-nav">
+  <a href="/">⚾ BASEBALL</a>
+  <a href="/golf">⛳ GOLF</a>
+  <a href="/backtest" class="on">📊 BACKTEST</a>
+</div>
+<header>
+  <h1>Backtest</h1>
+  <span class="sub">how accurate are the matchup projections? // dk points · woba · rank correlation</span>
+</header>
+
+<main>
+  <div class="controls">
+    <label for="start-date">From</label>
+    <input type="date" id="start-date" />
+    <label for="end-date">To</label>
+    <input type="date" id="end-date" />
+    <button id="run-btn">Run Backtest</button>
+    <button id="load-btn" class="secondary">Load Saved</button>
+    <span id="status-pill" class="status-pill">idle</span>
+  </div>
+
+  <div class="hint" style="margin-bottom:14px;">
+    Each date runs the full matchup analysis (using only data available on that date — no look-ahead)
+    then compares projections to actual game boxscores. Results are cached so the same date is never
+    re-fetched. Dates with no completed games are skipped automatically.
+    <strong style="color:var(--accent)">Warning:</strong> each new date takes 2–5 min to pull Statcast data.
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">Log</div>
+    <pre class="log" id="log">(no run yet — click Run Backtest or Load Saved)</pre>
+  </div>
+
+  <div id="results-section" style="display:none;">
+    <div class="panel">
+      <div class="panel-header">Aggregate Accuracy</div>
+      <div class="panel-body">
+        <div class="metric-grid" id="metric-grid"></div>
+        <p class="hint" style="margin-top:14px;margin-bottom:0;">
+          <strong>DK Corr</strong> — Pearson r between projected and actual DraftKings score (higher = better). &nbsp;
+          <strong>DK Rank</strong> — Spearman ρ: how well projected rankings match actual rankings. &nbsp;
+          <strong>DK MAE</strong> — mean absolute error of the DK projection in raw points. &nbsp;
+          <strong>wOBA Corr</strong> — Pearson r between projected wOBA and actual single-game wOBA. &nbsp;
+          <strong>Edge Rank</strong> — Spearman ρ of wOBA edge ranking vs actual wOBA (signal quality without DK noise). &nbsp;
+          <strong>Bias</strong> — projected mean minus actual mean (positive = over-projecting).
+        </p>
+      </div>
+    </div>
+
+    <div class="panel" id="bins-panel" style="display:none;">
+      <div class="panel-header">DK Calibration — Projected Quintiles vs Actual (Q1 = lowest projected, Q5 = highest)</div>
+      <div class="panel-body" style="padding:0;">
+        <table class="bt">
+          <thead><tr>
+            <th>Quintile</th>
+            <th class="num">Proj DK Mean</th>
+            <th class="num">Actual DK Mean</th>
+            <th class="num">N</th>
+            <th>Actual DK (bar)</th>
+          </tr></thead>
+          <tbody id="bins-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel" id="bydate-panel" style="display:none;">
+      <div class="panel-header">Per-Date Accuracy</div>
+      <div class="panel-body" style="padding:0;">
+        <table class="bt">
+          <thead><tr>
+            <th>Date</th>
+            <th class="num">Batters</th>
+            <th class="num">DK Corr</th>
+            <th class="num">DK MAE</th>
+            <th class="num">wOBA Corr</th>
+          </tr></thead>
+          <tbody id="bydate-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+  const $ = (s) => document.querySelector(s);
+  const runBtn    = $("#run-btn");
+  const loadBtn   = $("#load-btn");
+  const statusPill = $("#status-pill");
+  const logEl     = $("#log");
+  const resultsSection = $("#results-section");
+
+  // Default date range: last 7 completed days
+  (function() {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    function iso(dt) {
+      return dt.getFullYear() + "-" +
+        String(dt.getMonth() + 1).padStart(2, "0") + "-" +
+        String(dt.getDate()).padStart(2, "0");
+    }
+    $("#end-date").value = iso(d);
+    const s = new Date(d); s.setDate(s.getDate() - 6);
+    $("#start-date").value = iso(s);
+  })();
+
+  let pollTimer = null;
+
+  function setStatus(s) {
+    statusPill.className = "status-pill " + s;
+    statusPill.textContent = s;
+  }
+
+  runBtn.addEventListener("click", async () => {
+    const start = $("#start-date").value;
+    const end   = $("#end-date").value;
+    if (!start || !end) return;
+    runBtn.disabled = true;
+    setStatus("running");
+    logEl.textContent = "starting backtest...";
+    try {
+      const r = await fetch("/backtest/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ start_date: start, end_date: end }),
+      });
+      const j = await r.json();
+      if (j.status !== "started") {
+        logEl.textContent = "could not start: " + JSON.stringify(j);
+        runBtn.disabled = false; setStatus("error"); return;
+      }
+      startPolling();
+    } catch (e) {
+      logEl.textContent = "request failed: " + e;
+      runBtn.disabled = false; setStatus("error");
+    }
+  });
+
+  loadBtn.addEventListener("click", async () => {
+    loadBtn.disabled = true;
+    logEl.textContent = "loading saved results...";
+    try {
+      const r = await fetch("/backtest/results");
+      const j = await r.json();
+      if (!j.n_records) {
+        logEl.textContent = "no saved results found. Run a backtest first.";
+      } else {
+        logEl.textContent = `loaded ${j.n_records} records across ${j.n_dates} dates.`;
+        renderResults(j);
+      }
+    } catch (e) {
+      logEl.textContent = "load failed: " + e;
+    } finally {
+      loadBtn.disabled = false;
+    }
+  });
+
+  function startPolling() {
+    stopPolling();
+    pollTimer = setInterval(pollStatus, 2000);
+    pollStatus();
+  }
+  function stopPolling() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  }
+
+  async function pollStatus() {
+    try {
+      const r = await fetch("/backtest/status");
+      const s = await r.json();
+      setStatus(s.status);
+      logEl.textContent = (s.log || []).join("\n") || "(no log yet)";
+      logEl.scrollTop = logEl.scrollHeight;
+      if (s.status === "done" && s.result) {
+        renderResults(s.result);
+        runBtn.disabled = false;
+        stopPolling();
+      } else if (s.status === "error") {
+        runBtn.disabled = false;
+        stopPolling();
+      }
+    } catch (e) { console.error(e); }
+  }
+
+  function renderResults(data) {
+    resultsSection.style.display = "";
+    const m = data.metrics || {};
+    renderMetrics(m, data.n_records);
+    renderBins(m.dk_bins);
+    renderByDate(data.by_date || []);
+  }
+
+  function renderMetrics(m, nRec) {
+    const grid = $("#metric-grid");
+    grid.innerHTML = "";
+
+    function card(label, value, sub, cls) {
+      const d = document.createElement("div");
+      d.className = "mcard" + (cls ? " " + cls : "");
+      d.innerHTML =
+        '<div class="label">' + label + '</div>' +
+        '<div class="value">' + value + '</div>' +
+        (sub ? '<div class="sub">' + sub + '</div>' : '');
+      return d;
+    }
+
+    function corrClass(v) {
+      if (v == null) return "";
+      return v >= 0.12 ? "good" : (v <= 0.02 ? "bad" : "");
+    }
+
+    const nDK   = m.n_dk   != null ? m.n_dk   : nRec;
+    const nWoba = m.n_woba != null ? m.n_woba : "";
+
+    grid.appendChild(card("Records", nRec != null ? nRec : "-", "batter-days matched", ""));
+    grid.appendChild(card("DK Corr (r)",  m.dk_corr   != null ? m.dk_corr.toFixed(3)  : "-", `n=${nDK}`, corrClass(m.dk_corr)));
+    grid.appendChild(card("DK Rank (ρ)",  m.dk_spearman != null ? m.dk_spearman.toFixed(3) : "-", "Spearman", corrClass(m.dk_spearman)));
+    grid.appendChild(card("DK MAE",       m.dk_mae    != null ? m.dk_mae.toFixed(2) + " pts" : "-", "mean abs error", ""));
+    grid.appendChild(card("DK Bias",      m.dk_bias   != null ? (m.dk_bias > 0 ? "+" : "") + m.dk_bias.toFixed(2) + " pts" : "-",
+                           m.dk_bias > 0 ? "over-projecting" : (m.dk_bias < 0 ? "under-projecting" : ""), m.dk_bias > 1 ? "bad" : (m.dk_bias < -1 ? "bad" : "")));
+    grid.appendChild(card("wOBA Corr (r)", m.woba_corr != null ? m.woba_corr.toFixed(3) : "-", `n=${nWoba}`, corrClass(m.woba_corr)));
+    grid.appendChild(card("Edge Rank (ρ)", m.edge_spearman != null ? m.edge_spearman.toFixed(3) : "-", "edge→actual wOBA", corrClass(m.edge_spearman)));
+    if (m.dk_proj_mean != null && m.dk_actual_mean != null) {
+      grid.appendChild(card("Proj Mean", m.dk_proj_mean.toFixed(2), "projected DK pts", ""));
+      grid.appendChild(card("Actual Mean", m.dk_actual_mean.toFixed(2), "actual DK pts", ""));
+    }
+  }
+
+  function renderBins(bins) {
+    const panel = $("#bins-panel");
+    const tbody = $("#bins-body");
+    if (!bins || !bins.length) { panel.style.display = "none"; return; }
+    panel.style.display = "";
+    tbody.innerHTML = "";
+    const maxVal = Math.max(...bins.map(b => b.actual_mean || 0)) || 1;
+    bins.forEach(b => {
+      const pct = Math.round(100 * (b.actual_mean || 0) / maxVal);
+      const col = barColor(b);
+      const tr  = document.createElement("tr");
+      tr.innerHTML =
+        "<td>" + b.label + "</td>" +
+        '<td class="num">' + (b.proj_mean != null ? b.proj_mean.toFixed(2) : "-") + "</td>" +
+        '<td class="num" style="font-weight:600">' + (b.actual_mean != null ? b.actual_mean.toFixed(2) : "-") + "</td>" +
+        '<td class="num">' + (b.n || 0) + "</td>" +
+        '<td><div class="cal-bar-wrap"><div class="cal-bar" style="width:' + pct + '%;background:' + col + '"></div></div></td>';
+      tbody.appendChild(tr);
+    });
+  }
+
+  function barColor(b) {
+    if (!b.proj_mean || !b.actual_mean) return "var(--muted)";
+    const ratio = b.actual_mean / b.proj_mean;
+    if (ratio >= 0.85) return "var(--good)";
+    if (ratio >= 0.65) return "var(--accent)";
+    return "var(--bad)";
+  }
+
+  function renderByDate(byDate) {
+    const panel = $("#bydate-panel");
+    const tbody = $("#bydate-body");
+    if (!byDate || !byDate.length) { panel.style.display = "none"; return; }
+    panel.style.display = "";
+    tbody.innerHTML = "";
+    byDate.slice().reverse().forEach(d => {
+      const m   = d.metrics || {};
+      const tr  = document.createElement("tr");
+      const err = d.error ? '<span style="color:var(--bad)">' + escHtml(d.error) + '</span>' : null;
+      tr.innerHTML =
+        "<td>" + escHtml(d.date) + "</td>" +
+        '<td class="num">' + (d.n_matched != null ? d.n_matched : (d.n != null ? d.n : "-")) + "</td>" +
+        '<td class="num" style="color:' + corrColor(m.dk_corr != null ? m.dk_corr : d.dk_corr) + '">' +
+          (m.dk_corr != null ? m.dk_corr.toFixed(3) : (d.dk_corr != null ? d.dk_corr.toFixed(3) : (err || "-"))) + "</td>" +
+        '<td class="num">' + (m.dk_mae != null ? m.dk_mae.toFixed(2) : (d.dk_mae != null ? d.dk_mae.toFixed(2) : "-")) + "</td>" +
+        '<td class="num" style="color:' + corrColor(m.woba_corr != null ? m.woba_corr : d.woba_corr) + '">' +
+          (m.woba_corr != null ? m.woba_corr.toFixed(3) : (d.woba_corr != null ? d.woba_corr.toFixed(3) : "-")) + "</td>";
+      tbody.appendChild(tr);
+    });
+  }
+
+  function corrColor(v) {
+    if (v == null || isNaN(v)) return "var(--muted)";
+    if (v >= 0.15) return "var(--good)";
+    if (v >= 0.06) return "var(--accent)";
+    if (v >= 0)    return "var(--text)";
+    return "var(--bad)";
+  }
+
+  function escHtml(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  }
+
+  // On page load, check if a backtest is already running and show saved results
+  (async function init() {
+    try {
+      const r = await fetch("/backtest/status");
+      const s = await r.json();
+      if (s.status === "running") {
+        setStatus("running");
+        runBtn.disabled = true;
+        logEl.textContent = (s.log || []).join("\n");
+        startPolling();
+      } else if (s.status === "done" && s.result) {
+        setStatus("done");
+        logEl.textContent = (s.log || []).join("\n");
+        renderResults(s.result);
+      }
+    } catch (e) { /* ignore */ }
+  })();
+</script>
+</body>
+</html>

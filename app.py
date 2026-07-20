@@ -28,6 +28,7 @@ from typing import Any, Dict, Optional
 from flask import Flask, jsonify, render_template, request
 
 import matchup_tool
+import mlb_backtest
 
 # -----------------------------------------------------------------------------
 # Golf Open model (second tab). Fully self-contained; the guarded import + the
@@ -152,6 +153,96 @@ def _run_analysis(date_str: str, batter_window: str = "season") -> None:
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+# -----------------------------------------------------------------------------
+# Backtest routes
+# -----------------------------------------------------------------------------
+
+_bt_lock  = threading.Lock()
+_bt_state: Dict[str, Any] = {
+    "status":   "idle",
+    "start":    None,
+    "end":      None,
+    "log":      [],
+    "result":   None,
+    "error":    None,
+}
+_bt_thread: Optional[threading.Thread] = None
+
+
+def _bt_log(line: str) -> None:
+    with _bt_lock:
+        if len(_bt_state["log"]) >= 2000:
+            _bt_state["log"] = _bt_state["log"][-1500:]
+        _bt_state["log"].append(line)
+    log.info("[bt] %s", line)
+
+
+def _run_backtest(start_date: str, end_date: str) -> None:
+    try:
+        with _bt_lock:
+            _bt_state.update({"status": "running", "start": start_date,
+                               "end": end_date, "log": [], "result": None, "error": None})
+        result = mlb_backtest.run_range(start_date, end_date, log_fn=_bt_log)
+        with _bt_lock:
+            _bt_state["status"] = "done"
+            _bt_state["result"] = result
+    except Exception as e:
+        tb = traceback.format_exc()
+        log.error("backtest failed: %s\n%s", e, tb)
+        with _bt_lock:
+            _bt_state["status"] = "error"
+            _bt_state["error"]  = str(e)
+            _bt_state["log"].append(f"ERROR: {e}")
+
+
+@app.route("/backtest")
+def backtest_index():
+    return render_template("backtest.html")
+
+
+@app.route("/backtest/run", methods=["POST"])
+def backtest_run():
+    global _bt_thread
+    data       = request.get_json(silent=True) or request.form or {}
+    start_date = (data.get("start_date") if hasattr(data, "get") else None) or ""
+    end_date   = (data.get("end_date")   if hasattr(data, "get") else None) or ""
+    try:
+        _dt.date.fromisoformat(start_date)
+        _dt.date.fromisoformat(end_date)
+    except Exception:
+        return jsonify({"status": "error", "error": "bad date range"}), 400
+
+    with _bt_lock:
+        if _bt_state["status"] == "running":
+            return jsonify({"status": "busy", "message": "backtest already running"}), 409
+    with _state_lock:
+        if _state["status"] == "running":
+            return jsonify({"status": "busy", "message": "analysis already running"}), 409
+
+    _bt_thread = threading.Thread(
+        target=_run_backtest, args=(start_date, end_date), daemon=True)
+    _bt_thread.start()
+    return jsonify({"status": "started", "start": start_date, "end": end_date})
+
+
+@app.route("/backtest/status")
+def backtest_status():
+    with _bt_lock:
+        return jsonify({
+            "status": _bt_state["status"],
+            "start":  _bt_state["start"],
+            "end":    _bt_state["end"],
+            "log":    list(_bt_state["log"]),
+            "result": _bt_state["result"],
+            "error":  _bt_state["error"],
+        })
+
+
+@app.route("/backtest/results")
+def backtest_results():
+    return jsonify(mlb_backtest.load_summary())
 
 
 @app.route("/run", methods=["POST"])
