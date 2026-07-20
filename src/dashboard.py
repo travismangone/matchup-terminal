@@ -15,7 +15,7 @@ from .course_fit import adjusted_skill, skill_breakdown
 from .compare import find_plays, sharp_reference, scan_ev, scan_matchups
 from .clv import line_movement
 from .odds_math import decimal_to_american, prob_to_decimal, expected_value
-from config import SHARP_BOOKS, EVENT, SIM
+from config import SHARP_BOOKS, EVENT, SIM, SKILL_SOURCE
 
 _MATCHUPS_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)),
                               "data", "matchups.json")
@@ -101,7 +101,7 @@ def build_state(demo: bool = False) -> dict:
 
     # Field = the full DK pool (so every rosterable player has data) + any
     # odds-board players not in the pool, deduped by fuzzy name.
-    from .match import match_player
+    from .match import match_player, build_index
     from . import dk
     dk_sal = {} if demo else dk.load()
     dk_idx = dk.index(dk_sal) if dk_sal else None
@@ -110,10 +110,23 @@ def build_state(demo: bool = False) -> dict:
     if demo:
         players = datagolf.synthetic_field()
     else:
-        field = [v["name"] for v in dk_sal.values()]
-        for onm in odds_players:
-            if not (dk_idx and match_player(onm, dk_idx)):
-                field.append(onm)
+        # THIS WEEK'S entry list from DataGolf is DEFINITIVE: anyone not in it is
+        # not playing, so a stale DK salaries CSV or a leftover odds board from
+        # last week's event can't leak the wrong players into the field. Salary
+        # and odds data get joined onto these players later, never add to them.
+        field = []
+        try:
+            field = list(datagolf.fetch_field())
+        except Exception as e:
+            print(f"[warn] datagolf field fetch failed: {e}")
+        if not field:
+            # No entry list (event not posted yet) -> fall back to DK pool + odds.
+            field = [v["name"] for v in dk_sal.values()]
+            seen = build_index(field) if field else None
+            for nm in odds_players:
+                if not (seen and match_player(nm, seen)):
+                    field.append(nm)
+                    seen = build_index(field)
         players = free_sg.build_field(field or odds_players)
 
     # Flag anyone out of the tournament (missed cut / WD / DQ). We keep them in the
@@ -121,7 +134,6 @@ def build_state(demo: bool = False) -> dict:
     # can see who's out at a glance. Fetch live state once here (in-play + the next
     # round's tee sheet) and hand both to _live_round to avoid re-fetching.
     from .odds import datagolf_inplay, datagolf_field
-    from .match import build_index
     ip = {"next_round": None, "players": {}, "cut": set()}
     wv = {"date": None, "players": {}}
     full_idx = None
@@ -129,6 +141,14 @@ def build_state(demo: bool = False) -> dict:
     if not demo and players:
         full_idx = build_index([p.name for p in players])
         ip = datagolf_inplay.fetch_inplay(full_idx)
+        # Between events the in-play feed still serves LAST week's tournament. If
+        # it doesn't match this week's entry list, it's stale — using it would tag
+        # players who missed last week's cut as WD in this week's field.
+        this_ev = datagolf.current_event()
+        if this_ev and ip.get("event") and ip["event"] != this_ev:
+            print(f"[live] in-play is still '{ip['event']}' (this week: '{this_ev}') "
+                  f"-> ignoring until it rolls over")
+            ip = {"next_round": None, "players": {}, "cut": set(), "event": ip["event"]}
         nr = ip.get("next_round")
         if nr:
             wv = datagolf_field.fetch_waves(full_idx, nr)
@@ -151,7 +171,24 @@ def build_state(demo: bool = False) -> dict:
     # positions would distort everyone else's win/top-N odds (badly so post-cut).
     live_players = [p for p in players if p.name not in wd]
     skills_map = course_fit.build_skills(live_players)
-    sim = simulate.simulate(skills_map)
+
+    # Skill source: DataGolf's decomposition (their data-driven course fit +
+    # history + per-player round SD) overrides our course-fit model where it has
+    # the player. See config.SKILL_SOURCE for why the hand-tuned model was retired.
+    sigmas = None
+    if not demo and SKILL_SOURCE == "datagolf_decomp" and full_idx:
+        from . import decomp
+        dcm = decomp.fetch(full_idx)
+        if dcm:
+            hit = 0
+            for n in list(skills_map):
+                if n in dcm:
+                    skills_map[n] = dcm[n]["final"]
+                    hit += 1
+            sigmas = {n: v["sd"] for n, v in dcm.items() if v.get("sd")}
+            print(f"[skill] decomposition covered {hit}/{len(skills_map)} of the field")
+
+    sim = simulate.simulate(skills_map, sigmas)
     rows = sim.as_dicts()
     row_by = {r["name"]: r for r in rows}
     model_probs = {m: {r["name"]: r[m] for r in rows} for m in MARKETS}
@@ -161,7 +198,7 @@ def build_state(demo: bool = False) -> dict:
         bd = skill_breakdown(p)
         return {
             "name": p.name,
-            "adjusted": round(bd["adjusted"], 3),   # course-fit output -> the sim
+            "adjusted": round(skills_map.get(p.name, bd["adjusted"]), 3),  # what drives the sim
             "sg_total": round(p.sg_total, 2),
             "sg_ott": round(p.sg_ott, 2), "sg_app": round(p.sg_app, 2),
             "sg_arg": round(p.sg_arg, 2), "sg_putt": round(p.sg_putt, 2),
@@ -235,7 +272,7 @@ def build_state(demo: bool = False) -> dict:
         salaries = {p.name: sal_by[p.name]["salary"]
                     for p in players if sal_by.get(p.name) and p.name not in wd}
         from . import optimal
-        exposure = optimal.compute(skills_map, salaries)
+        exposure = optimal.compute(skills_map, salaries, sigmas=sigmas)
         dfs_by = {d["name"]: d for d in dfs}
         for name, opt in exposure.items():
             d = dfs_by.get(name, {})

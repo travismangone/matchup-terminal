@@ -21,11 +21,12 @@ DK_CAP = 50_000
 
 
 def compute(skills: dict[str, float], salaries: dict[str, int],
-            n_sims: int = 2500, pool: int = 50, bucket: int = 500) -> dict[str, float]:
+            n_sims: int = 2500, pool: int = 50, bucket: int = 500,
+            sigmas: dict[str, float] | None = None) -> dict[str, float]:
     """Full-tournament optimal exposure. {player: fraction of sims in the optimal lineup}."""
     from .simulate import simulate_dk_matrix
 
-    names, dk = simulate_dk_matrix(skills, n_sims)
+    names, dk = simulate_dk_matrix(skills, n_sims, sigmas=sigmas)
     return exposure_from_matrix(names, dk, salaries, pool=pool, bucket=bucket)
 
 

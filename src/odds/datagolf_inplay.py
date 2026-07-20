@@ -39,10 +39,12 @@ def fetch_inplay(roster_index: dict, tour: str = "pga") -> dict:
             timeout=30,
         )
         r.raise_for_status()
-        rows = r.json().get("data", []) or []
+        payload = r.json()
+        rows = payload.get("data", []) or []
+        ev = (payload.get("info") or {}).get("event_name")
     except Exception as e:
         print(f"[warn] datagolf in-play failed: {e}")
-        return {"next_round": None, "players": {}, "cut": set()}
+        return {"next_round": None, "players": {}, "cut": set(), "event": None}
 
     players: dict[str, dict] = {}
     round_has_score = {1: False, 2: False, 3: False, 4: False}
@@ -72,4 +74,4 @@ def fetch_inplay(roster_index: dict, tour: str = "pga") -> dict:
     # signals — no next-round tee time, 0% make-cut — in _out_of_event.)
     cut = {name for name, st in players.items()
            if str(st.get("current_pos") or "").upper() in _OUT_POS}
-    return {"next_round": next_round, "players": players, "cut": cut}
+    return {"next_round": next_round, "players": players, "cut": cut, "event": ev}

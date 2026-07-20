@@ -98,6 +98,21 @@ def fetch_field(api_key: str | None = None, tour: str = "pga") -> list[str]:
     return [_clean_name(p.get("player_name", "")) for p in r.json().get("field", [])]
 
 
+def current_event(api_key: str | None = None, tour: str = "pga") -> str | None:
+    """Name of the event whose entry list is live right now (per /field-updates)."""
+    key = _key(api_key)
+    if not key:
+        return None
+    try:
+        r = requests.get(f"{BASE}/field-updates",
+                         params={"tour": tour, "file_format": "json", "key": key},
+                         timeout=30)
+        r.raise_for_status()
+        return r.json().get("event_name")
+    except Exception:
+        return None
+
+
 def load_field(api_key: str | None = None, demo: bool = False) -> list[Player]:
     """
     Assemble the modeling field: intersect skill ratings with the entry list.

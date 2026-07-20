@@ -55,20 +55,40 @@ class SimResult:
         return rows
 
 
-def simulate(skills: dict[str, float]) -> SimResult:
+def _sigma_array(names, sigmas) -> np.ndarray:
+    """Per-player round SD, defaulting to the global config sigma.
+
+    DataGolf publishes a real per-player round SD (~2.62-3.35, median 2.80 at
+    TPC Twin Cities); a single global sigma both over-states variance and treats
+    a metronome and a wild driver identically, which flattens the favorites.
+    """
+    base = SIM["round_sigma"] * SIM["wind_factor"]
+    arr = np.full(len(names), base, dtype=np.float32)
+    if sigmas:
+        for i, n in enumerate(names):
+            s = sigmas.get(n)
+            if s:
+                arr[i] = s
+    return arr
+
+
+def simulate(skills: dict[str, float], sigmas: dict[str, float] | None = None) -> SimResult:
     """
     Monte Carlo, run in memory-bounded CHUNKS (float32) so peak RAM stays low
     regardless of n_sims — the full-array version OOM-kills a 512MB instance.
     Each chunk is independent sims; we accumulate per-sim counts/points and
     divide at the end, so the result matches the all-at-once version within
     Monte Carlo noise.
+
+    `sigmas` optionally gives each player their own round SD (DataGolf's
+    std_deviation); anyone missing falls back to the global config sigma.
     """
     names = list(skills.keys())
     mu = np.array([skills[n] for n in names], dtype=np.float32)
     n_players = len(names)
 
     n_sims = SIM["n_sims"]
-    sigma = SIM["round_sigma"] * SIM["wind_factor"]
+    sigma = _sigma_array(names, sigmas)[None, :, None]
     rounds = EVENT["rounds"]
     top_n = EVENT["cut_rule"]["top_n"]
     rng = np.random.default_rng(SIM["seed"])
@@ -91,7 +111,7 @@ def simulate(skills: dict[str, float]) -> SimResult:
     while done < n_sims:
         m = min(chunk, n_sims - done)
         # Simulate m tournaments (float32 to halve memory).
-        noise = rng.normal(0.0, sigma, size=(m, n_players, rounds)).astype(np.float32)
+        noise = rng.standard_normal(size=(m, n_players, rounds)).astype(np.float32) * sigma
         sg = mu[None, :, None] + noise
         first36 = sg[:, :, :2].sum(axis=2)
         total72 = sg.sum(axis=2)
@@ -132,14 +152,15 @@ def simulate(skills: dict[str, float]) -> SimResult:
     )
 
 
-def simulate_dk_matrix(skills: dict[str, float], n_sims: int):
+def simulate_dk_matrix(skills: dict[str, float], n_sims: int,
+                       sigmas: dict[str, float] | None = None):
     """Like simulate() but RETAINS the per-sim DK point total for every player
     (n_sims x n_players), for the optimal-lineup exposure calc. float32, chunked."""
     names = list(skills.keys())
     mu = np.array([skills[n] for n in names], dtype=np.float32)
     P = len(names)
     rounds = EVENT["rounds"]
-    sigma = SIM["round_sigma"] * SIM["wind_factor"]
+    sigma = _sigma_array(names, sigmas)[None, :, None]
     top_n = EVENT["cut_rule"]["top_n"]
     rng = np.random.default_rng(SIM["seed"])
     rank_pts = np.zeros(P, dtype=np.float32)
@@ -153,7 +174,7 @@ def simulate_dk_matrix(skills: dict[str, float], n_sims: int):
     done = 0
     while done < n_sims:
         m = min(chunk, n_sims - done)
-        sg = mu[None, :, None] + rng.normal(0.0, sigma, size=(m, P, rounds)).astype(np.float32)
+        sg = mu[None, :, None] + rng.standard_normal(size=(m, P, rounds)).astype(np.float32) * sigma
         first36 = sg[:, :, :2].sum(axis=2)
         total72 = sg.sum(axis=2)
         cut_line = np.partition(first36, P - 1 - k, axis=1)[:, P - 1 - k]

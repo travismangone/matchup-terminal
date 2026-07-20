@@ -11,16 +11,32 @@ from __future__ import annotations
 # The event
 # --------------------------------------------------------------------------
 EVENT = {
-    "name": "The Open Championship 2026",
-    "course": "Royal Birkdale",
-    "location": "Southport, England",
-    "dates": "2026-07-16..2026-07-19",
-    "field_size": 156,
+    "name": "3M Open 2026",
+    "course": "TPC Twin Cities",
+    "location": "Blaine, MN",
+    "dates": "2026-07-23..2026-07-26",
+    "field_size": 140,
     "rounds": 4,
-    "cut_rule": {"top_n": 70, "ties": True},   # Open cut: top 70 and ties after R2
+    "cut_rule": {"top_n": 65, "ties": True},   # standard PGA Tour cut: top 65 and ties
     # The Odds API sport key for this event's outright winner market.
-    "odds_sport_key": "golf_the_open_championship_winner",
+    "odds_sport_key": "golf_pga_championship_winner",
 }
+
+# --------------------------------------------------------------------------
+# Skill source — where the sim's per-player expected SG/round comes from.
+#
+#   "datagolf_decomp": DataGolf /preds/player-decompositions final_pred, which
+#                      already folds in THEIR data-driven course fit, course
+#                      history, timing and age, plus a per-player round SD.
+#   "course_fit":      our hand-tuned LINKS_WEIGHTS / FIT_FACTORS model below.
+#
+# Backtesting the 2026 Open decided this. The hand-tuned links model predicted
+# actual results no better than raw season SG (spearman +0.603 vs +0.605), the
+# form nudge was actively NEGATIVE (-0.111 vs actual), and DataGolf's own fit
+# adjustments span only +/-0.34 strokes (SD 0.13) against a skill spread of
+# SD 0.91 — course fit is a ~14% effect, not a thesis worth hand-building.
+# course_fit remains the fallback for anyone missing from the decomposition.
+SKILL_SOURCE = "datagolf_decomp"
 
 # --------------------------------------------------------------------------
 # Course-fit / links weighting  —  ROYAL BIRKDALE thesis
@@ -37,37 +53,27 @@ EVENT = {
 # bunkers still make approach control and driving position the separators.
 # --------------------------------------------------------------------------
 LINKS_WEIGHTS = {
-    "sg_app": 1.45,    # approach: THE separator in wind — iron control wins Opens
-    "sg_ott": 1.15,    # off-the-tee: position avoids pot bunkers; distance still carries them
-    "sg_arg": 1.18,    # around-the-green: links scrambling matters, but SG:ARG is a
-                       # noisy low-sample stat — kept above neutral, not amplified
-
-    "sg_putt": 0.60,   # putting: bumpy, wind-affected links greens = noise, downweight hard
+    # TPC Twin Cities is parkland target golf, not links — no component re-weight.
+    # These stay at neutral 1.0 because the Open backtest showed aggressive
+    # re-weighting bought nothing over equal-weight SG. Only move one off 1.0 if
+    # there's evidence, not a narrative.
+    "sg_app": 1.00,
+    "sg_ott": 1.00,
+    "sg_arg": 1.00,
+    "sg_putt": 1.00,
 }
 
 # Extra multiplicative/additive fit factors (all in strokes-per-round space).
 FIT_FACTORS = {
-    # Small accuracy nudge on top of SG:OTT (which already rewards driving), so
-    # kept low to avoid double-counting — just enough to reward links positioning.
-    "driving_accuracy_weight": 0.08,
-    # Bonus for players with strong prior links / Open form (see course_fit).
-    # Now backed by real data (src/links.py: Open + Scottish Open finish history),
-    # not a neutral placeholder. Range is ±(this/2) SG/round at the extremes;
-    # 0.40 -> ±0.20, in line with how much course fit actually moves the needle
-    # at a major. Raise to lean harder on links pedigree.
-    "links_history_bonus_max": 0.35,
-    # Links-specific FLOOR bonus: links punishes big numbers (pot bunkers, fescue,
-    # wind) more than a normal course, so bogey avoidance is worth extra here on
-    # top of what raw SG implies. Bonus = weight · z(bogey avoidance), capped.
-    # Deliberate lean most models don't make. per SD of avoidance:
-    "bogey_avoid_weight": 0.10,
-    "bogey_avoid_cap": 0.20,
-    # Weight on the equal-weight SG total vs. the links-reweighted components.
-    # LOWER = more links lean. 0.18 -> 82% weight on the links re-weight. This is
-    # deliberately MORE aggressive than industry course-fit (which is light-touch)
-    # — the model's thesis is that Birkdale rewards the links skill profile harder
-    # than the market/consensus prices it.
-    "datagolf_skill_blend": 0.18,
+    # Fallback-path fit factors, all dialed to ~off. DataGolf's decomposition
+    # supplies course fit/history now (SKILL_SOURCE), and the Open backtest
+    # showed our hand-built versions of these added nothing.
+    "driving_accuracy_weight": 0.0,
+    "links_history_bonus_max": 0.0,   # no links history at a parkland course
+    "bogey_avoid_weight": 0.0,
+    "bogey_avoid_cap": 0.0,
+    # 1.0 = trust the equal-weight season SG total outright.
+    "datagolf_skill_blend": 1.0,
 }
 
 # --------------------------------------------------------------------------
@@ -76,13 +82,13 @@ FIT_FACTORS = {
 # (Deviation, not level, so it doesn't double-count the season SG already in.)
 # --------------------------------------------------------------------------
 FORM_FACTORS = {
-    "weight": 0.30,    # fraction of the (form − season) deviation applied to skill.
-                       # Trimmed from 0.40: DataGolf skill ratings already weight
-                       # recency, so this avoids double-counting and lets the links
-                       # signal carry more of the adjustment at this event.
-    "cap": 0.50,       # max ± SG/round the form nudge can move a player
-    "w16": 0.60,       # blend weight on the 16-round window (sharper, noisier)
-    "w24": 0.40,       # blend weight on the 24-round window (steadier)
+    # OFF. At the 2026 Open the form nudge correlated -0.111 with actual SG —
+    # it actively hurt. DataGolf's baseline already weights recency. Re-enable
+    # only if validate_rounds shows form earning its keep across events.
+    "weight": 0.0,
+    "cap": 0.0,
+    "w16": 0.60,
+    "w24": 0.40,
 }
 
 # --------------------------------------------------------------------------
@@ -99,7 +105,7 @@ SIM = {
     # Wind multiplier on round_sigma — links wind genuinely widens round-to-round
     # scoring variance, which compresses the favorites toward the field. 1.20 ->
     # effective sigma 3.60 for Birkdale in wind. Bump higher for a nastier forecast.
-    "wind_factor": 1.20,
+    "wind_factor": 1.00,
     "seed": 7,
 }
 
@@ -171,7 +177,7 @@ DK_R4_SCORING = {"base": 30.0, "slope": 4.5, "floor": 12.0, "cap": 58.0}
 # model can't see. We pull the upcoming round's tee-time waves (DataGolf
 # field-updates) + an hourly wind forecast (Open-Meteo, no key) and convert the
 # wind gap between waves into an SG nudge on the next-round projection.
-EVENT_LOCATION = {"lat": 53.6236, "lon": -3.0327, "name": "Royal Birkdale"}
+EVENT_LOCATION = {"lat": 45.1608, "lon": -93.2347, "name": "TPC Twin Cities"}
 DRAW = {
     "sg_per_mph": 0.055,   # relative SG penalty per mph of wind above the field-mean wave
     "cap": 0.65,           # max |draw adjustment| in SG (keeps a wild forecast from dominating)
