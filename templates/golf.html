@@ -196,7 +196,9 @@
       <th data-k="proj" title="Projected DK points for the next round (form-adjusted for regression + draw). R4 adds finishing-position points and is on DK's true showdown per-hole scale, so R4 numbers run higher than R1-R3.">Proj</th>
       <th data-k="ceiling" title="85th-percentile round — the GPP upside">Ceiling</th>
       <th data-k="value" title="Proj points per $1k">Value</th>
+      <th data-k="optimal" title="% of simulated next rounds this golfer is in the OPTIMAL 6-man $50K lineup for THIS slate (single-round knapsack, not the 4-round sim). The best single measure of a play.">Opt%</th>
       <th data-k="own_large" title="Projected ownership">Own%</th>
+      <th data-k="leverage" title="Optimal% − Ownership%. Positive (green) = the model wants him more often than the field is rostering him — the GPP edge.">Lev</th>
     </tr></thead><tbody id="liveBody"></tbody></table>
   </section>
 
@@ -336,7 +338,9 @@ function renderLive(){
       <td>${r.proj==null?'—':r.proj.toFixed(1)}</td>
       <td class="pos">${r.ceiling==null?'—':r.ceiling.toFixed(1)}</td>
       <td class="${r.value>=2.6?'pos':''}">${r.value==null?'—':r.value.toFixed(2)}</td>
-      <td class="dim">${r.own_large==null?'—':r.own_large.toFixed(1)+'%'}</td></tr>`);
+      <td class="${r.optimal>=15?'pos':''}">${r.optimal==null?'—':r.optimal.toFixed(1)+'%'}</td>
+      <td class="dim">${r.own_large==null?'—':r.own_large.toFixed(1)+'%'}</td>
+      <td class="${r.leverage==null?'':(r.leverage>0?'pos':'neg')}">${r.leverage==null?'—':(r.leverage>0?'+':'')+r.leverage.toFixed(1)}</td></tr>`);
   }
 }
 function renderSim(){
@@ -425,6 +429,7 @@ const EXPORT={
     ["pos","Pos"],["score","Score"],["teetime","Tee"],["wave","Wave"],["salary","Salary"],
     ["r1_sg","R_SG"],["r1_app","R_App"],["r1_putt","R_Putt"],["regression","Regr"],["draw","Draw"],
     ["place","Place"],["hole","HolePts"],["proj","Proj"],["ceiling","Ceiling"],
+    ["optimal","Optimal_pct"],["leverage","Leverage"],
     ["value","Value"],["own_large","Own_pct"]]}),
   sim:()=>({rows:sortRows(STATE.sim||[],SORT.sim||{key:"optimal",dir:-1}), cols:[["name","Player"],
     ["salary","Salary"],["dk_points","ProjPts"],["optimal","Optimal_pct"],

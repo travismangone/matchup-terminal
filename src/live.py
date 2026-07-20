@@ -143,7 +143,8 @@ def draw_edges(waves: dict, hourly: dict) -> dict:
     }
 
 
-def project_next_round(skills: dict[str, float], n_sims: int = 4000) -> dict[str, dict]:
+def project_next_round(skills: dict[str, float], n_sims: int = 4000,
+                       _return_matrix: bool = False):
     """{player: {proj (mean), ceiling (85th pct), floor (15th pct)}} DK scoring
     for one round."""
     names = list(skills.keys())
@@ -155,6 +156,8 @@ def project_next_round(skills: dict[str, float], n_sims: int = 4000) -> dict[str
     sc = np.clip(DK_SCORING["base"] + DK_SCORING["slope"] * sg,
                  DK_SCORING["floor"], LIVE_ROUND_CAP)
 
+    if _return_matrix:
+        return names, sc
     out: dict[str, dict] = {}
     for i, n in enumerate(names):
         col = sc[:, i]
@@ -175,7 +178,7 @@ def _r4_place_points(n: int) -> np.ndarray:
 
 
 def project_final_round(skills: dict[str, float], current_scores: dict[str, float],
-                        n_sims: int = 5000) -> dict[str, dict]:
+                        n_sims: int = 5000, _return_matrix: bool = False):
     """
     Round 4 projection = simulated R4 hole scoring + finishing-position points.
 
@@ -216,6 +219,8 @@ def project_final_round(skills: dict[str, float], current_scores: dict[str, floa
         place_all[start:start + m] = place_pts[rank0]
 
     total = hole_all + place_all
+    if _return_matrix:
+        return names, total
     out: dict[str, dict] = {}
     for i, nm in enumerate(names):
         col = total[:, i]
@@ -227,3 +232,27 @@ def project_final_round(skills: dict[str, float], current_scores: dict[str, floa
             "place_ev": round(float(place_all[:, i].mean()), 1),
         }
     return out
+
+
+def showdown_exposure(skills: dict[str, float], salaries: dict[str, int],
+                      current_scores: dict[str, float] | None = None,
+                      n_sims: int = 2500, pool: int = 50) -> dict[str, float]:
+    """
+    Optimal-lineup exposure for the SINGLE-ROUND showdown slate: how often each
+    golfer lands in the optimal 6-man / $50K lineup across simulated next rounds.
+
+    This is the slate-correct version of the Optimal tab — the full-tournament
+    exposure model answers "who belongs in a 4-round lineup", which can omit the
+    best one-round plays entirely. Pass current_scores on R4 so the sim includes
+    finishing-position points.
+    """
+    from . import optimal
+
+    if current_scores:
+        names, dk = project_final_round(skills, current_scores, n_sims=n_sims,
+                                        _return_matrix=True)
+    else:
+        names, dk = project_next_round(skills, n_sims=n_sims, _return_matrix=True)
+    if not names:
+        return {}
+    return optimal.exposure_from_matrix(names, dk, salaries, pool=pool)

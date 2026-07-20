@@ -373,8 +373,8 @@ def _live_round(players, skills_map, sal_by, own_map, own_idx, demo, ip=None, id
                    for name in skills_map}
     # R4: finishing position is scored, so sim the tournament to the finish from
     # each player's 54-hole score. Earlier rounds are single-round scoring only.
+    cur_scores = {}
     if nr >= 4:
-        cur_scores = {}
         for name in proj_skills:
             st = ip["players"].get(name)
             cs = _parse_score(st.get("current_score")) if st else None
@@ -383,6 +383,17 @@ def _live_round(players, skills_map, sal_by, own_map, own_idx, demo, ip=None, id
         proj = live.project_final_round(proj_skills, cur_scores)
     else:
         proj = live.project_next_round(proj_skills)
+
+    # Optimal-lineup exposure for THIS slate. The Optimal tab runs the 4-round
+    # sim, which can omit the best single-round plays entirely (it left out the
+    # eventual Open winner on R4) — so the showdown gets its own knapsack.
+    salaries = {p.name: sal_by[p.name]["salary"] for p in players
+                if sal_by.get(p.name) and p.name in proj_skills and "wd" not in p.flags}
+    try:
+        expo = live.showdown_exposure(proj_skills, salaries, cur_scores or None) if salaries else {}
+    except Exception as e:
+        print(f"[warn] showdown exposure failed: {e}")
+        expo = {}
 
     rows = []
     for p in players:
@@ -410,6 +421,9 @@ def _live_round(players, skills_map, sal_by, own_map, own_idx, demo, ip=None, id
             "draw": round(per_player.get(p.name, 0.0), 2) if per_player else None,
             "place": pr.get("place_ev") if pr else None,   # R4 finishing-position pts (None pre-R4)
             "hole": pr.get("hole_ev") if pr else None,     # R4 hole-scoring pts
+            "optimal": round(expo[p.name] * 100, 1) if p.name in expo else None,
+            "leverage": (round(expo[p.name] * 100 - o["own_large"], 1)
+                         if (p.name in expo and o and o.get("own_large") is not None) else None),
             "own_large": o["own_large"] if o else None,
             "src": _skill_source(p.flags),
         })

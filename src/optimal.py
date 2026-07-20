@@ -22,10 +22,21 @@ DK_CAP = 50_000
 
 def compute(skills: dict[str, float], salaries: dict[str, int],
             n_sims: int = 2500, pool: int = 50, bucket: int = 500) -> dict[str, float]:
-    """{player: fraction of sims in the optimal lineup}."""
+    """Full-tournament optimal exposure. {player: fraction of sims in the optimal lineup}."""
     from .simulate import simulate_dk_matrix
 
     names, dk = simulate_dk_matrix(skills, n_sims)
+    return exposure_from_matrix(names, dk, salaries, pool=pool, bucket=bucket)
+
+
+def exposure_from_matrix(names: list[str], dk, salaries: dict[str, int],
+                         pool: int = 50, bucket: int = 500) -> dict[str, float]:
+    """
+    Optimal-lineup exposure for ANY per-sim DK points matrix (n_sims x n_players).
+    Split out from compute() so the single-round showdown model can reuse the exact
+    same knapsack on its own projections instead of the 4-round tournament sim.
+    """
+    n_sims = dk.shape[0]
     means = dk.mean(axis=0)
 
     # Prune to the top `pool` salaried players by mean projected points.
