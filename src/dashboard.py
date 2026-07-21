@@ -529,7 +529,9 @@ def _board(win_q) -> list:
 
 def _movement(demo) -> dict:
     rows = line_movement("win", demo)
-    o, c = store.opening_run(demo), store.closing_run(demo)
+    # Same event-scoped opener the deltas are computed against, so the banner's
+    # "open run" timestamp matches the prices in the table.
+    o, c = store.event_opening_run(demo), store.closing_run(demo)
     return {
         "open_run": o, "close_run": c, "single": (o == c),
         # EVERY golfer currently priced by the sharp book, sorted by biggest mover.

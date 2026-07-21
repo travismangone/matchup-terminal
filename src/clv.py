@@ -34,7 +34,9 @@ class Movement:
 
 
 def line_movement(market: str = "win", demo: bool = False) -> list[Movement]:
-    o_run, c_run = store.opening_run(demo), store.closing_run(demo)
+    # Opener scoped to THIS event (not the first run in an across-events store),
+    # so we never compare a golfer's price at last week's tournament to this one.
+    o_run, c_run = store.event_opening_run(demo), store.closing_run(demo)
     if not o_run:
         return []
     open_fair = sharp_reference(store.quotes_at(o_run, market, demo))

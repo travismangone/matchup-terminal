@@ -89,6 +89,34 @@ def closing_run(demo: bool = False) -> str | None:
     return r[-1] if r else None
 
 
+def _run_players(ts: str, demo: bool) -> set:
+    return {r["player"] for r in load_lines(demo)
+            if r["ts"] == ts and r["market"] == "win"}
+
+
+def event_opening_run(demo: bool = False, min_overlap: float = 0.6) -> str | None:
+    """
+    Opening run FOR THE CURRENT EVENT. The store is append-only across events, so
+    the literal first run is often last week's board — comparing this week's
+    closer to it produces garbage deltas (a player's Open price vs. his 3M price).
+
+    We treat the latest run's field as "this event", then walk runs oldest-first
+    and return the first whose field overlaps it by >= min_overlap. That anchors
+    the opener to when THIS event's market first posted, not the prior event's.
+    """
+    r = runs(demo)
+    if not r:
+        return None
+    ref = _run_players(r[-1], demo)
+    if not ref:
+        return r[0]
+    for ts in r:
+        players = _run_players(ts, demo)
+        if players and len(players & ref) / min(len(players), len(ref)) >= min_overlap:
+            return ts
+    return r[-1]
+
+
 # --------------------------------------------------------------------------
 # Bet log
 # --------------------------------------------------------------------------
