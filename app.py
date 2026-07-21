@@ -132,6 +132,17 @@ def _run_analysis(date_str: str, batter_window: str = "season") -> None:
 
         result = matchup_tool.analyze_slate(date_str, log_fn=_append_log, batter_window=batter_window)
 
+        # Persist daily result so the backtest can load it without re-running Statcast.
+        try:
+            import json as _json
+            from pathlib import Path as _Path
+            _daily_dir = _Path(__file__).parent / "data" / "daily"
+            _daily_dir.mkdir(parents=True, exist_ok=True)
+            with open(_daily_dir / f"{date_str}.json", "w") as _f:
+                _json.dump(result, _f)
+        except Exception as _e:
+            log.warning("could not cache daily result: %s", _e)
+
         with _state_lock:
             _state["status"] = "done"
             _state["finished_at"] = _dt.datetime.utcnow().isoformat() + "Z"

@@ -222,8 +222,16 @@ def run_date(date_str: str, log_fn: Callable[[str], None] = print) -> Dict:
         with open(cache) as f:
             return json.load(f)
 
-    log_fn(f"[backtest] {date_str}: running analyze_slate ...")
-    analysis = _mt.analyze_slate(date_str, log_fn=log_fn)
+    # Use a cached daily analysis if available (saved by the main baseball tab).
+    # This avoids re-pulling Statcast data for dates you've already analyzed.
+    _daily_cache = Path(__file__).parent / "data" / "daily" / f"{date_str}.json"
+    if _daily_cache.exists():
+        log_fn(f"[backtest] {date_str}: loading cached daily analysis (instant)")
+        with open(_daily_cache) as _f:
+            analysis = json.load(_f)
+    else:
+        log_fn(f"[backtest] {date_str}: no cached analysis — running analyze_slate (takes 5-10 min) ...")
+        analysis = _mt.analyze_slate(date_str, log_fn=log_fn)
 
     log_fn(f"[backtest] {date_str}: fetching actual boxscores ...")
     try:

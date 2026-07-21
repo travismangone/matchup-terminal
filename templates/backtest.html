@@ -106,10 +106,10 @@
   </div>
 
   <div class="hint" style="margin-bottom:14px;">
-    Each date runs the full matchup analysis (using only data available on that date — no look-ahead)
-    then compares projections to actual game boxscores. Results are cached so the same date is never
-    re-fetched. Dates with no completed games are skipped automatically.
-    <strong style="color:var(--accent)">Warning:</strong> each new date takes 2–5 min to pull Statcast data.
+    Compares your matchup projections to actual game boxscores. <strong style="color:var(--good)">Fast path:</strong>
+    any date you already ran from the ⚾ Baseball tab is cached and loads instantly.
+    <strong style="color:var(--accent)">Slow path:</strong> uncached dates must re-pull Statcast data (~5–10 min each) —
+    start with 1–2 uncached days. Backtest results are also cached so the same date is never re-fetched.
   </div>
 
   <div class="panel">
@@ -175,7 +175,7 @@
   const logEl     = $("#log");
   const resultsSection = $("#results-section");
 
-  // Default date range: last 7 completed days
+  // Default date range: last 3 completed days
   (function() {
     const d = new Date();
     d.setDate(d.getDate() - 1);
@@ -185,7 +185,7 @@
         String(dt.getDate()).padStart(2, "0");
     }
     $("#end-date").value = iso(d);
-    const s = new Date(d); s.setDate(s.getDate() - 6);
+    const s = new Date(d); s.setDate(s.getDate() - 2);
     $("#start-date").value = iso(s);
   })();
 
@@ -254,13 +254,21 @@
       const r = await fetch("/backtest/status");
       const s = await r.json();
       setStatus(s.status);
-      logEl.textContent = (s.log || []).join("\n") || "(no log yet)";
-      logEl.scrollTop = logEl.scrollHeight;
+      if ((s.log || []).length > 0) {
+        logEl.textContent = s.log.join("\n");
+        logEl.scrollTop = logEl.scrollHeight;
+      }
       if (s.status === "done" && s.result) {
         renderResults(s.result);
         runBtn.disabled = false;
         stopPolling();
       } else if (s.status === "error") {
+        logEl.textContent = (s.log || []).join("\n") + "\n\nERROR: " + (s.error || "unknown");
+        runBtn.disabled = false;
+        stopPolling();
+      } else if (s.status === "idle") {
+        // Server restarted and lost state — re-enable the run button
+        logEl.textContent = "Server restarted — previous run was interrupted. Try again.";
         runBtn.disabled = false;
         stopPolling();
       }
