@@ -17,7 +17,12 @@ EVENT = {
     "dates": "2026-07-23..2026-07-26",
     "field_size": 140,
     "rounds": 4,
-    "cut_rule": {"top_n": 65, "ties": True},   # standard PGA Tour cut: top 65 and ties
+    # Standard PGA Tour cut: top 65 AND ties. The sim scores are continuous, so
+    # exactly 65 would advance — but real integer-stroke golf ties many players
+    # into the cut, so "top 65 and ties" empirically admits ~71-72 in a full
+    # field. ties_pad models that: effective cut = top_n + ties_pad. Calibrated
+    # so sim make-cut matches DataGolf's model (was -4.5pp low without it).
+    "cut_rule": {"top_n": 65, "ties": True, "ties_pad": 7},
     # The Odds API sport key for this event's outright winner market.
     "odds_sport_key": "golf_pga_championship_winner",
 }

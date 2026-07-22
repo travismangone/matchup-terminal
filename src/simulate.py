@@ -90,7 +90,9 @@ def simulate(skills: dict[str, float], sigmas: dict[str, float] | None = None) -
     n_sims = SIM["n_sims"]
     sigma = _sigma_array(names, sigmas)[None, :, None]
     rounds = EVENT["rounds"]
-    top_n = EVENT["cut_rule"]["top_n"]
+    # Effective cut count = top_n + ties_pad (continuous sim scores don't tie;
+    # "top 65 and ties" really admits ~72 — see config.cut_rule).
+    top_n = EVENT["cut_rule"]["top_n"] + EVENT["cut_rule"].get("ties_pad", 0)
     rng = np.random.default_rng(SIM["seed"])
 
     # DK placement points by finishing rank (0-based).
@@ -161,7 +163,7 @@ def simulate_dk_matrix(skills: dict[str, float], n_sims: int,
     P = len(names)
     rounds = EVENT["rounds"]
     sigma = _sigma_array(names, sigmas)[None, :, None]
-    top_n = EVENT["cut_rule"]["top_n"]
+    top_n = EVENT["cut_rule"]["top_n"] + EVENT["cut_rule"].get("ties_pad", 0)
     rng = np.random.default_rng(SIM["seed"])
     rank_pts = np.zeros(P, dtype=np.float32)
     fill = min(len(DK_PLACEMENT_POINTS), P)
