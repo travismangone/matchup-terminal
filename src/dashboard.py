@@ -196,8 +196,10 @@ def build_state(demo: bool = False) -> dict:
     # Strokes-gained inputs (what drives the sim), sorted by course-fit skill.
     def _srow(p):
         bd = skill_breakdown(p)
+        s = sal_by.get(p.name)
         return {
             "name": p.name,
+            "salary": s["salary"] if s else None,
             "adjusted": round(skills_map.get(p.name, bd["adjusted"]), 3),  # what drives the sim
             "sg_total": round(p.sg_total, 2),
             "sg_ott": round(p.sg_ott, 2), "sg_app": round(p.sg_app, 2),

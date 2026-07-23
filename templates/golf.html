@@ -138,7 +138,7 @@
   <section id="sg" class="tab hide">
     <p class="note">Strokes-gained inputs that drive the sim, per round. <b>Skill</b> = course-fit adjusted SG (season SG + links + recent form applied) — the number the sim uses. <b>SG Tot</b> = raw season SG. <b>16r / 24r</b> = trailing recent-form SG over the last 16 / 24 rounds. <b>Links</b> = Open/Scottish finish aptitude (0.5 neutral). Source: PGA = measured, OWGR = estimated, none = replacement.</p>
     <table><thead><tr>
-      <th data-k="name">Player</th><th data-k="adjusted">Skill</th><th data-k="sg_total">SG Tot</th>
+      <th data-k="name">Player</th><th data-k="salary">Salary</th><th data-k="adjusted">Skill</th><th data-k="sg_total">SG Tot</th>
       <th data-k="form_16">16r</th><th data-k="form_24">24r</th>
       <th data-k="sg_ott">OTT</th><th data-k="sg_app">APP</th><th data-k="sg_arg">ARG</th>
       <th data-k="sg_putt">Putt</th><th data-k="driving_acc">Drv z</th><th data-k="links">Links</th>
@@ -414,7 +414,7 @@ const EXPORT={
   proj:()=>({rows:sortRows(STATE.projections,SORT.proj), cols:[["name","Player"],
     ["salary","Salary"],["win","Win"],["top_5","Top5"],["top_10","Top10"],
     ["top_20","Top20"],["make_cut","MakeCut"],["src","Source"]]}),
-  sg:()=>({rows:sortRows(STATE.skills,SORT.sg), cols:[["name","Player"],
+  sg:()=>({rows:sortRows(STATE.skills,SORT.sg), cols:[["name","Player"],["salary","Salary"],
     ["adjusted","Skill"],["sg_total","SG_Total"],["form_16","Form16"],["form_24","Form24"],
     ["sg_ott","OTT"],["sg_app","APP"],["sg_arg","ARG"],["sg_putt","Putt"],["driving_acc","DrvZ"],
     ["links","Links"],["birdie_pct","BoB_pct"],["bogey_pct","Bogey_pct"],["src","Source"]]}),
@@ -506,14 +506,14 @@ function renderSG(){
   const b=$("#sgBody"); b.innerHTML="";
   sortRows(STATE.skills, SORT.sg).slice(0,80).forEach((r,i)=>{
     b.insertAdjacentHTML("beforeend",`<tr class="sgrow" data-i="${i}">
-      <td>${r.name}${tag(r.src)}</td><td>${sg(r.adjusted)}</td><td>${sg(r.sg_total)}</td>
+      <td>${r.name}${tag(r.src)}</td><td>${money(r.salary)}</td><td>${sg(r.adjusted)}</td><td>${sg(r.sg_total)}</td>
       <td>${sg(r.form_16)}</td><td>${sg(r.form_24)}</td>
       <td>${sg(r.sg_ott)}</td><td>${sg(r.sg_app)}</td><td>${sg(r.sg_arg)}</td>
       <td>${sg(r.sg_putt)}</td><td class="dim">${r.driving_acc.toFixed(2)}</td>
       <td>${r.links.toFixed(2)}</td>
       <td>${r.birdie_pct==null?'—':r.birdie_pct.toFixed(1)}</td>
       <td class="dim">${r.bogey_pct==null?'—':r.bogey_pct.toFixed(1)}</td></tr>
-      <tr class="sgdetail hide" data-d="${i}"><td colspan="13"><div class="bd">
+      <tr class="sgdetail hide" data-d="${i}"><td colspan="14"><div class="bd">
         <span class="lead">Skill ${sg(r.adjusted)} =</span>
         ${bdItem("Season / fit",r.bd.season)}${bdItem("Driving",r.bd.driving)}
         ${bdItem("Links",r.bd.links)}${bdItem("Bogey avoid",r.bd.bogey??0)}${bdItem("Recent form",r.bd.form)}
