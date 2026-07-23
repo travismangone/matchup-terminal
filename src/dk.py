@@ -43,7 +43,15 @@ DEFAULT_PROJ = os.path.join(DATA, "dk_projections.csv")
 
 
 def load_ownership(path: str | None = None) -> dict[str, dict]:
-    """{normalized_name: {own_large, own_small}} — projected GPP ownership %."""
+    """
+    {normalized_name: {own_large, own_small}} — projected GPP ownership %.
+
+    Handles two export shapes:
+      * Legacy: "Golfer" + "Large Field Own" / "Small Field Own".
+      * SaberSim-style: "Name" + "My Own" (raw projected field ownership, sums to
+        ~600% for a 6-man lineup) / "Adj Own" (contest-adjusted). We take My Own
+        as the field ownership for leverage; Adj Own rides along as own_small.
+    """
     path = path or DEFAULT_PROJ
     out: dict[str, dict] = {}
     if not os.path.exists(path):
@@ -52,13 +60,16 @@ def load_ownership(path: str | None = None) -> dict[str, dict]:
     # as '﻿"Golfer"' and the name column comes back empty).
     with open(path, newline="", encoding="utf-8-sig") as f:
         for row in csv.DictReader(f):
-            name = (row.get("Golfer") or "").strip()
+            name = (row.get("Golfer") or row.get("Name") or "").strip()
             if not name:
                 continue
-            out[normalize_name(name)] = {
-                "own_large": _pct(row.get("Large Field Own")),
-                "own_small": _pct(row.get("Small Field Own")),
-            }
+            if row.get("My Own") is not None:          # SaberSim-style export
+                large = _pct(row.get("My Own"))
+                small = _pct(row.get("Adj Own")) if row.get("Adj Own") is not None else large
+            else:                                       # legacy export
+                large = _pct(row.get("Large Field Own"))
+                small = _pct(row.get("Small Field Own"))
+            out[normalize_name(name)] = {"own_large": large, "own_small": small}
     return out
 
 
