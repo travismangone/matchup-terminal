@@ -21,32 +21,43 @@ DK_CAP = 50_000
 
 
 def compute(skills: dict[str, float], salaries: dict[str, int],
-            n_sims: int = 2500, pool: int = 50, bucket: int = 500,
-            sigmas: dict[str, float] | None = None) -> dict[str, float]:
+            n_sims: int = 2500, sigmas: dict[str, float] | None = None) -> dict[str, float]:
     """Full-tournament optimal exposure. {player: fraction of sims in the optimal lineup}."""
     from .simulate import simulate_dk_matrix
 
     names, dk = simulate_dk_matrix(skills, n_sims, sigmas=sigmas)
-    return exposure_from_matrix(names, dk, salaries, pool=pool, bucket=bucket)
+    return exposure_from_matrix(names, dk, salaries)
 
 
 def exposure_from_matrix(names: list[str], dk, salaries: dict[str, int],
-                         pool: int = 50, bucket: int = 500) -> dict[str, float]:
+                         pool: int = 55, salary_relief: int = 20,
+                         bucket: int = 100) -> dict[str, float]:
     """
     Optimal-lineup exposure for ANY per-sim DK points matrix (n_sims x n_players).
     Split out from compute() so the single-round showdown model can reuse the exact
     same knapsack on its own projections instead of the 4-round tournament sim.
+
+    The candidate pool is the top `pool` players by mean points UNION the
+    `salary_relief` cheapest players. Pruning by points alone drops the cheap
+    punts you need to AFFORD a stud, which made an expensive favorite (Scheffler
+    at ~30% of the cap) show 0% optimal even though he's the top play. bucket=100
+    is exact for DK golf (salaries are multiples of $100), so no rounding wastes
+    cap — the old $500 bucket rounded each salary up and made feasible stud+punt
+    lineups infeasible.
     """
     n_sims = dk.shape[0]
     means = dk.mean(axis=0)
 
-    # Prune to the top `pool` salaried players by mean projected points.
-    idx = [i for i, n in enumerate(names) if salaries.get(n)]
-    idx = sorted(idx, key=lambda i: means[i], reverse=True)[:pool]
-    if not idx:
+    salaried = [i for i, n in enumerate(names) if salaries.get(n)]
+    if not salaried:
         return {}
+    # Pool = top-by-points  ∪  cheapest-by-salary (salary relief for stud builds).
+    by_points = sorted(salaried, key=lambda i: means[i], reverse=True)[:pool]
+    by_cheap = sorted(salaried, key=lambda i: salaries[names[i]])[:salary_relief]
+    idx = sorted(set(by_points) | set(by_cheap))
 
-    # Salary in buckets, rounded UP so the DP never exceeds the real cap.
+    # Salary in buckets, rounded UP so the DP never exceeds the real cap (with
+    # bucket=100 there's nothing to round — DK golf salaries are multiples of 100).
     sal_b = np.array([int(np.ceil(salaries[names[i]] / bucket)) for i in idx])
     pts_all = dk[:, idx]
     B = DK_CAP // bucket
