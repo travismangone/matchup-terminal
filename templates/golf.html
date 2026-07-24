@@ -322,7 +322,7 @@ function renderLive(){
   } else { db.className="draw-banner hide"; db.innerHTML=""; }
   const b=$("#liveBody"); b.innerHTML="";
   if(!rows.length) return;
-  for(const r of sortRows(rows, SORT.live || {key:"value", dir:-1}).slice(0,80)){
+  for(const r of sortRows(rows, SORT.live || {key:"value", dir:-1})){
     b.insertAdjacentHTML("beforeend",`<tr>
       <td>${r.name}${tag(r.src)}</td><td class="dim">${r.pos??'—'}</td>
       <td class="dim">${r.score==null?'—':(r.score>0?'+'+r.score:r.score)}</td>
