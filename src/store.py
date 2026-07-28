@@ -37,8 +37,12 @@ def _lines_path(demo: bool) -> str:
 # --------------------------------------------------------------------------
 # Line snapshots
 # --------------------------------------------------------------------------
-def snapshot(quotes: list[Quote], ts: str | None = None, demo: bool = False) -> str:
-    """Append all quotes as one timestamped run. Returns the run timestamp."""
+def snapshot(quotes: list[Quote], ts: str | None = None, demo: bool = False,
+             event: str | None = None) -> str:
+    """Append all quotes as one timestamped run. Returns the run timestamp.
+    `event` tags the run with the tournament it belongs to, so line movement can
+    scope the opener to THIS event (consecutive tour events share ~75% of their
+    field, so a field-overlap heuristic can't separate them — the name can)."""
     os.makedirs(DATA_DIR, exist_ok=True)
     ts = ts or _now_iso()
     with open(_lines_path(demo), "a") as f:
@@ -50,6 +54,7 @@ def snapshot(quotes: list[Quote], ts: str | None = None, demo: bool = False) -> 
                 "source": q.source,
                 "source_kind": q.source_kind,
                 "decimal_odds": round(q.decimal_odds, 4),
+                "event": event,
             }) + "\n")
     return ts
 
@@ -107,6 +112,16 @@ def event_opening_run(demo: bool = False, min_overlap: float = 0.6) -> str | Non
     r = runs(demo)
     if not r:
         return None
+    lines = load_lines(demo)
+    # Prefer the event tag: the earliest run that belongs to the SAME tournament
+    # as the latest run. Robust even when consecutive events share most of a field.
+    latest_ev = next((x.get("event") for x in lines
+                      if x["ts"] == r[-1] and x.get("event")), None)
+    if latest_ev:
+        tagged = sorted({x["ts"] for x in lines if x.get("event") == latest_ev})
+        if tagged:
+            return tagged[0]
+    # Fallback for untagged history: field-overlap heuristic.
     ref = _run_players(r[-1], demo)
     if not ref:
         return r[0]

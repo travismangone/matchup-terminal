@@ -11,11 +11,11 @@ from __future__ import annotations
 # The event
 # --------------------------------------------------------------------------
 EVENT = {
-    "name": "3M Open 2026",
-    "course": "TPC Twin Cities",
-    "location": "Blaine, MN",
-    "dates": "2026-07-23..2026-07-26",
-    "field_size": 140,
+    "name": "Rocket Classic 2026",
+    "course": "Detroit Golf Club",
+    "location": "Detroit, MI",
+    "dates": "2026-07-30..2026-08-02",
+    "field_size": 156,
     "rounds": 4,
     # Standard PGA Tour cut: top 65 AND ties. The sim scores are continuous, so
     # exactly 65 would advance — but real integer-stroke golf ties many players
@@ -182,7 +182,7 @@ DK_R4_SCORING = {"base": 30.0, "slope": 4.5, "floor": 12.0, "cap": 58.0}
 # model can't see. We pull the upcoming round's tee-time waves (DataGolf
 # field-updates) + an hourly wind forecast (Open-Meteo, no key) and convert the
 # wind gap between waves into an SG nudge on the next-round projection.
-EVENT_LOCATION = {"lat": 45.1608, "lon": -93.2347, "name": "TPC Twin Cities"}
+EVENT_LOCATION = {"lat": 42.4436, "lon": -83.1299, "name": "Detroit Golf Club"}
 DRAW = {
     "sg_per_mph": 0.055,   # relative SG penalty per mph of wind above the field-mean wave
     "cap": 0.65,           # max |draw adjustment| in SG (keeps a wild forecast from dominating)

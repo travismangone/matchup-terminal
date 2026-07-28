@@ -62,7 +62,7 @@ def pull_and_snapshot() -> str:
         _save_matchups(datagolf_matchups.fetch_matchups(idx))
     except Exception as e:
         print(f"[warn] matchups save failed: {e}")
-    return store.snapshot(sb + pm + kq)
+    return store.snapshot(sb + pm + kq, event=datagolf.current_event())
 
 
 def credit_status() -> dict:
