@@ -38,7 +38,16 @@ PUTT_REPEAT = 0.35
 BASELINE_WEIGHT = 0.55
 
 
-def regression_scores(skills: dict[str, float], recent_sg: dict[str, dict]) -> dict[str, dict]:
+# NOTE (4-event backtest, Open/3M/Rocket/Wyndham): the regression *direction* — the
+# "who bounces back / fades" edge in the Regr column — is unreliable at R2 (built
+# off 1 round): its sign was net-negative (mean -0.18 SG, wrong the last 2 weeks),
+# strong only once 2+ rounds are in (R3/R4 ~ +0.9). We TESTED discounting the
+# regression's weight in the R2 projection (baseline_weight 0.55 -> 0.85) and it
+# made the projection WORSE (corr with actual R2 SG 0.372 -> 0.338): even a noisy
+# R1 carries real ball-striking signal for the mean. So the projection keeps the
+# full weight; the Regr COLUMN just shouldn't be used as a standalone R2 play-picker.
+def regression_scores(skills: dict[str, float], recent_sg: dict[str, dict],
+                      baseline_weight: float | None = None) -> dict[str, dict]:
     """
     Who over/under-performed their tournament SG so far, and which way they regress
     next round. `recent_sg` is the recency-weighted blend of this event's completed
@@ -58,8 +67,9 @@ def regression_scores(skills: dict[str, float], recent_sg: dict[str, dict]) -> d
             out[name] = {"r1_sg": None, "r1_putt": None,
                          "expected": skill, "regression": None}
             continue
+        bw = BASELINE_WEIGHT if baseline_weight is None else baseline_weight
         sustainable = s["ott"] + s["app"] + ARG_REPEAT * s["arg"] + PUTT_REPEAT * s["putt"]
-        expected = BASELINE_WEIGHT * skill + (1 - BASELINE_WEIGHT) * sustainable
+        expected = bw * skill + (1 - bw) * sustainable
         out[name] = {
             "r1_sg": round(s["total"], 2),
             "r1_app": round(s["app"], 2),
