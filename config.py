@@ -11,18 +11,16 @@ from __future__ import annotations
 # The event
 # --------------------------------------------------------------------------
 EVENT = {
-    "name": "Wyndham Championship 2026",
-    "course": "Sedgefield Country Club",
-    "location": "Greensboro, NC",
-    "dates": "2026-08-06..2026-08-09",
-    "field_size": 156,
+    "name": "FedEx St. Jude Championship 2026",
+    "course": "TPC Southwind",
+    "location": "Memphis, TN",
+    "dates": "2026-08-13..2026-08-16",
+    "field_size": 70,
     "rounds": 4,
-    # Standard PGA Tour cut: top 65 AND ties. The sim scores are continuous, so
-    # exactly 65 would advance — but real integer-stroke golf ties many players
-    # into the cut, so "top 65 and ties" empirically admits ~71-72 in a full
-    # field. ties_pad models that: effective cut = top_n + ties_pad. Calibrated
-    # so sim make-cut matches DataGolf's model (was -4.5pp low without it).
-    "cut_rule": {"top_n": 65, "ties": True, "ties_pad": 7},
+    # NO CUT — FedEx Cup Playoff opener: all 70 qualifiers play 4 rounds. Setting
+    # top_n >= field with ties_pad 0 makes the sim admit everyone (make_cut ~100%),
+    # which is the correct no-cut behavior (and matches DataGolf's make_cut = 1.0).
+    "cut_rule": {"top_n": 70, "ties": True, "ties_pad": 0, "no_cut": True},
     # The Odds API sport key for this event's outright winner market.
     "odds_sport_key": "golf_pga_championship_winner",
 }
@@ -182,7 +180,7 @@ DK_R4_SCORING = {"base": 30.0, "slope": 4.5, "floor": 12.0, "cap": 58.0}
 # model can't see. We pull the upcoming round's tee-time waves (DataGolf
 # field-updates) + an hourly wind forecast (Open-Meteo, no key) and convert the
 # wind gap between waves into an SG nudge on the next-round projection.
-EVENT_LOCATION = {"lat": 36.0836, "lon": -79.8228, "name": "Sedgefield Country Club"}
+EVENT_LOCATION = {"lat": 35.0517, "lon": -89.7772, "name": "TPC Southwind"}
 DRAW = {
     "sg_per_mph": 0.055,   # relative SG penalty per mph of wind above the field-mean wave
     "cap": 0.65,           # max |draw adjustment| in SG (keeps a wild forecast from dominating)

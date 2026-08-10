@@ -21,6 +21,7 @@ Public API:
 
 from __future__ import annotations
 
+import concurrent.futures
 import datetime as _dt
 import logging
 import math
@@ -1115,6 +1116,37 @@ def score_matchup(
 
 
 # -----------------------------------------------------------------------------
+# Parallel Statcast pre-fetch helpers
+# -----------------------------------------------------------------------------
+
+_BATTER_PREFETCH_WORKERS = 8   # concurrent Statcast downloads per lineup batch
+_PITCHER_PREFETCH_WORKERS = 6  # concurrent pitcher-profile fetches across the slate
+
+
+def _prefetch_batter_statcast(batter_id: int, end_date: str, window: str) -> None:
+    """Download one batter's Statcast frame into _BATTER_DF_CACHE if not already present.
+
+    Called in parallel across a lineup before the sequential scoring loop so
+    each get_batter_profile() call is a fast cache read instead of a network pull.
+    Python's GIL makes the dict write atomic; the only race (two threads fetching
+    the same player simultaneously) is harmless since both produce identical results.
+    """
+    end = _dt.date.fromisoformat(end_date)
+    if window == "last30":
+        start = end - _dt.timedelta(days=30)
+    else:
+        start = _dt.date(end.year - (BATTER_LOOKBACK_SEASONS - 1), 1, 1)
+    _bk = (batter_id, start.isoformat(), end_date)
+    if _BATTER_DF_CACHE.get(_bk) is not None:
+        return
+    try:
+        df = statcast_batter(start.isoformat(), end_date, batter_id)
+    except Exception:
+        df = None
+    _BATTER_DF_CACHE[_bk] = df
+
+
+# -----------------------------------------------------------------------------
 # Top-level entry point
 # -----------------------------------------------------------------------------
 
@@ -1143,6 +1175,31 @@ def analyze_slate(date_str: str, log_fn: Callable[[str], None] = print, batter_w
     pitcher_cache: Dict[int, Dict] = {}
     pitcher_meta: Dict[int, Dict] = {}
 
+    # ---------- Phase 1: Pre-fetch all pitcher profiles in parallel ----------
+    _prefetched_pitchers: Dict[int, tuple] = {}
+
+    def _fetch_pitcher_parallel(pid: int) -> None:
+        try:
+            _prefetched_pitchers[pid] = (
+                get_pitcher_profile(pid, date_str, log_fn=log_fn),
+                _infer_pitcher_throws(pid, date_str),
+            )
+        except Exception:
+            _prefetched_pitchers[pid] = (None, "R")
+
+    _all_pids = {
+        g.get(f"{s}_pitcher_id")
+        for g in slate for s in ("away", "home")
+        if g.get(f"{s}_pitcher_id")
+    }
+    if _all_pids:
+        _safe_log(log_fn, f"Prefetching {len(_all_pids)} pitcher profiles in parallel ...")
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=min(_PITCHER_PREFETCH_WORKERS, len(_all_pids))
+        ) as _pex:
+            list(_pex.map(_fetch_pitcher_parallel, _all_pids))
+    # -------------------------------------------------------------------------
+
     for g in slate:
         for side, opp_side in (("away", "home"), ("home", "away")):
             pid = g.get(f"{side}_pitcher_id")
@@ -1163,9 +1220,13 @@ def analyze_slate(date_str: str, log_fn: Callable[[str], None] = print, batter_w
                 _safe_log(log_fn, f"  {opp_team}: no official or projected lineup; showing pitcher only")
 
             if pid not in pitcher_cache:
-                prof = get_pitcher_profile(pid, date_str, log_fn=log_fn)
-                # Infer throwing hand from the most recent pitch row, fallback R.
-                throws = _infer_pitcher_throws(pid, date_str)
+                # Use the pre-fetched profile from Phase 1 if available.
+                _pp = _prefetched_pitchers.get(pid)
+                if _pp and _pp[0] is not None:
+                    prof, throws = _pp
+                else:
+                    prof = get_pitcher_profile(pid, date_str, log_fn=log_fn)
+                    throws = _infer_pitcher_throws(pid, date_str)
                 pitcher_cache[pid] = prof
                 pitcher_meta[pid] = {"name": pname, "team": own_team, "throws": throws,
                                        "opponent": opp_team}
@@ -1196,6 +1257,21 @@ def analyze_slate(date_str: str, log_fn: Callable[[str], None] = print, batter_w
 
             prof = pitcher_cache[pid]
             throws = pitcher_meta[pid]["throws"]
+
+            # Phase 2: Parallel batter Statcast pre-fetch for this lineup.
+            # Downloads all batters' 2-season frames concurrently so each
+            # get_batter_profile() call below is a fast in-memory cache read.
+            if lineup:
+                _safe_log(log_fn, f"  {opp_team}: prefetching {len(lineup)} batters in parallel ...")
+                with concurrent.futures.ThreadPoolExecutor(
+                    max_workers=min(_BATTER_PREFETCH_WORKERS, len(lineup))
+                ) as _bex:
+                    list(_bex.map(
+                        lambda _b: _prefetch_batter_statcast(
+                            _b["player_id"], date_str, batter_window
+                        ),
+                        lineup,
+                    ))
 
             for b in lineup:
                 eff_side = _effective_bat_side(b["bat_side"], throws)
