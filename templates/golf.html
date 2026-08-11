@@ -305,7 +305,8 @@ function renderLive(){
     `<span class="pos">green</span> playing better than scoring `+
     `(ball-striking &gt; putting — <b>bounce-back</b>), <span class="neg">red</span> scoring better than playing `+
     `(hot putter — <b>fade</b>). Proj is form-adjusted for it, plus the <b>Draw</b> (wind) edge`+
-    (r4?` and finishing position`:``)+`. <b>Ceiling</b> = 85th-percentile outcome. Default sort: value.` :
+    (r4?` and finishing position`:``)+`. <b>Ceiling</b> = 85th-percentile outcome. Default sort: value.`+
+    (rn===2?` <b>Note:</b> Regr is off 1 round here — its direction is LOW-CONFIDENCE at R2 (backtested net-negative), so it's dimmed. It's baked into Proj, but don't pick off the Regr column alone until R3+.`:``) :
     `No round is live yet — this activates once Round 1 is underway. During the event it shows the next round's plays.`;
   // Draw (wind) banner — real AM/PM wave Thu/Fri, tee-time split on the weekend
   const dr=lv.draw, db=$("#drawBanner");
@@ -332,7 +333,7 @@ function renderLive(){
       <td class="${r.r1_sg==null?'dim':(r.r1_sg>1?'pos':(r.r1_sg<-1?'neg':'dim'))}">${r.r1_sg==null?'—':(r.r1_sg>0?'+'+r.r1_sg.toFixed(2):r.r1_sg.toFixed(2))}</td>
       <td class="${r.r1_app==null?'dim':(r.r1_app>0.5?'pos':(r.r1_app<-0.5?'neg':'dim'))}">${r.r1_app==null?'—':(r.r1_app>0?'+'+r.r1_app.toFixed(2):r.r1_app.toFixed(2))}</td>
       <td class="${r.r1_putt==null?'dim':(r.r1_putt>0.5?'pos':(r.r1_putt<-0.5?'neg':'dim'))}">${r.r1_putt==null?'—':(r.r1_putt>0?'+'+r.r1_putt.toFixed(2):r.r1_putt.toFixed(2))}</td>
-      <td class="${r.regression==null?'':(r.regression>0.15?'pos':(r.regression<-0.15?'neg':''))}">${r.regression==null?'—':(r.regression>0?'+'+r.regression.toFixed(2):r.regression.toFixed(2))}</td>
+      <td class="${r.regression==null?'':(rn===2?'dim':(r.regression>0.15?'pos':(r.regression<-0.15?'neg':'')))}">${r.regression==null?'—':(r.regression>0?'+'+r.regression.toFixed(2):r.regression.toFixed(2))}</td>
       <td class="${r.draw==null?'':(r.draw>0.05?'pos':(r.draw<-0.05?'neg':''))}">${r.draw==null?'—':(r.draw>0?'+'+r.draw.toFixed(2):r.draw.toFixed(2))}</td>
       <td class="${r.place>2?'pos':'dim'}">${r.place==null?'—':r.place.toFixed(1)}</td>
       <td>${r.proj==null?'—':r.proj.toFixed(1)}</td>
