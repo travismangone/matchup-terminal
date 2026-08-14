@@ -34,8 +34,26 @@ from typing import Callable, Dict, List, Optional
 import numpy as np
 import pandas as pd
 
+import requests as _requests_mod
+
 import statsapi
 from pybaseball import statcast_pitcher, statcast_batter, cache as pyb_cache
+
+# Patch requests so that statcast_batter/statcast_pitcher never hang forever on
+# a slow or silently-dropped Baseball Savant connection. Both module-level
+# requests.get and Session.get are patched so all pybaseball call paths are covered.
+# Any call that already passes an explicit timeout= is unaffected (setdefault).
+_orig_req_get = _requests_mod.get
+def _req_get_with_timeout(url, **kw):
+    kw.setdefault("timeout", 60)
+    return _orig_req_get(url, **kw)
+_requests_mod.get = _req_get_with_timeout
+
+_orig_session_get = _requests_mod.Session.get
+def _session_get_with_timeout(self, url, **kw):
+    kw.setdefault("timeout", 60)
+    return _orig_session_get(self, url, **kw)
+_requests_mod.Session.get = _session_get_with_timeout
 
 # -----------------------------------------------------------------------------
 # Configuration
@@ -1119,8 +1137,8 @@ def score_matchup(
 # Parallel Statcast pre-fetch helpers
 # -----------------------------------------------------------------------------
 
-_BATTER_PREFETCH_WORKERS = 8   # concurrent Statcast downloads per lineup batch
-_PITCHER_PREFETCH_WORKERS = 6  # concurrent pitcher-profile fetches across the slate
+_BATTER_PREFETCH_WORKERS = 4   # concurrent Statcast downloads per lineup batch
+_PITCHER_PREFETCH_WORKERS = 4  # concurrent pitcher-profile fetches across the slate
 
 
 def _prefetch_batter_statcast(batter_id: int, end_date: str, window: str) -> None:

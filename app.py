@@ -456,6 +456,29 @@ if _GOLF_OK and GOLF_REFRESH_MINUTES > 0:
 
 
 # -----------------------------------------------------------------------------
+# Keep-alive: self-ping /healthz every 10 minutes so Render free-tier doesn't
+# spin the service down between analysis runs. The ping starts 60s after boot
+# to give gunicorn time to bind before the first request.
+# -----------------------------------------------------------------------------
+
+def _keep_alive_loop() -> None:
+    import time, requests
+    import urllib.request
+    port = int(os.environ.get("PORT", "5000"))
+    url  = f"http://127.0.0.1:{port}/healthz"
+    time.sleep(60)  # wait for gunicorn to bind
+    while True:
+        try:
+            urllib.request.urlopen(url, timeout=10)
+        except Exception:
+            pass
+        time.sleep(600)  # ping every 10 min
+
+threading.Thread(target=_keep_alive_loop, daemon=True).start()
+log.info("keep-alive: self-ping /healthz every 10 min")
+
+
+# -----------------------------------------------------------------------------
 # Entry point
 # -----------------------------------------------------------------------------
 
