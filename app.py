@@ -462,14 +462,19 @@ if _GOLF_OK and GOLF_REFRESH_MINUTES > 0:
 # -----------------------------------------------------------------------------
 
 def _keep_alive_loop() -> None:
-    import time, requests
+    import time
     import urllib.request
-    port = int(os.environ.get("PORT", "5000"))
-    url  = f"http://127.0.0.1:{port}/healthz"
+    # RENDER_EXTERNAL_URL is set automatically by Render and routes through their
+    # load balancer, so it counts as real inbound traffic for idle-detection.
+    # Falls back to localhost for local dev (where keep-alive isn't needed anyway).
+    base = os.environ.get("RENDER_EXTERNAL_URL") or \
+           f"http://127.0.0.1:{os.environ.get('PORT', '5000')}"
+    url = f"{base.rstrip('/')}/healthz"
+    log.info("keep-alive target: %s", url)
     time.sleep(60)  # wait for gunicorn to bind
     while True:
         try:
-            urllib.request.urlopen(url, timeout=10)
+            urllib.request.urlopen(url, timeout=15)
         except Exception:
             pass
         time.sleep(600)  # ping every 10 min
