@@ -831,17 +831,19 @@ def get_batter_profile(
     else:
         start = _dt.date(end.year - (BATTER_LOOKBACK_SEASONS - 1), 1, 1)
     _bk = (batter_id, start.isoformat(), end.isoformat())
-    df = _BATTER_DF_CACHE.get(_bk)
-    if df is None:
+    if _bk not in _BATTER_DF_CACHE:
         _safe_log(log_fn, f"    Pulling batter {batter_id} Statcast {start} -> {end} ...")
         try:
             df = statcast_batter(start.isoformat(), end.isoformat(), batter_id)
         except Exception as e:
             _safe_log(log_fn, f"      batter fetch failed: {e}")
+            _BATTER_DF_CACHE[_bk] = None  # don't retry this batter
             return _empty_batter_profile()
         _BATTER_DF_CACHE[_bk] = df
     else:
-        _safe_log(log_fn, f"    Batter {batter_id} Statcast (cached {start} -> {end})")
+        df = _BATTER_DF_CACHE[_bk]
+        if df is not None:
+            _safe_log(log_fn, f"    Batter {batter_id} Statcast (cached {start} -> {end})")
 
     if df is None or df.empty:
         return _empty_batter_profile()
@@ -1141,7 +1143,8 @@ _BATTER_PREFETCH_WORKERS = 4   # concurrent Statcast downloads per lineup batch
 _PITCHER_PREFETCH_WORKERS = 4  # concurrent pitcher-profile fetches across the slate
 
 
-def _prefetch_batter_statcast(batter_id: int, end_date: str, window: str) -> None:
+def _prefetch_batter_statcast(batter_id: int, end_date: str, window: str,
+                               log_fn: Callable[[str], None] = lambda _: None) -> None:
     """Download one batter's Statcast frame into _BATTER_DF_CACHE if not already present.
 
     Called in parallel across a lineup before the sequential scoring loop so
@@ -1155,11 +1158,13 @@ def _prefetch_batter_statcast(batter_id: int, end_date: str, window: str) -> Non
     else:
         start = _dt.date(end.year - (BATTER_LOOKBACK_SEASONS - 1), 1, 1)
     _bk = (batter_id, start.isoformat(), end_date)
-    if _BATTER_DF_CACHE.get(_bk) is not None:
-        return
+    if _bk in _BATTER_DF_CACHE:
+        return  # already have a result (success or failure) — don't retry
     try:
         df = statcast_batter(start.isoformat(), end_date, batter_id)
-    except Exception:
+        _safe_log(log_fn, f"    batter {batter_id} fetched")
+    except Exception as _e:
+        _safe_log(log_fn, f"    batter {batter_id} failed: {_e}")
         df = None
     _BATTER_DF_CACHE[_bk] = df
 
@@ -1198,11 +1203,12 @@ def analyze_slate(date_str: str, log_fn: Callable[[str], None] = print, batter_w
 
     def _fetch_pitcher_parallel(pid: int) -> None:
         try:
-            _prefetched_pitchers[pid] = (
-                get_pitcher_profile(pid, date_str, log_fn=log_fn),
-                _infer_pitcher_throws(pid, date_str),
-            )
-        except Exception:
+            prof   = get_pitcher_profile(pid, date_str, log_fn=log_fn)
+            throws = _infer_pitcher_throws(pid, date_str)
+            _prefetched_pitchers[pid] = (prof, throws)
+            _safe_log(log_fn, f"  pitcher {pid} fetched ({len(_prefetched_pitchers)}/{len(_all_pids)})")
+        except Exception as _e:
+            _safe_log(log_fn, f"  pitcher {pid} failed: {_e}")
             _prefetched_pitchers[pid] = (None, "R")
 
     _all_pids = {
@@ -1286,7 +1292,7 @@ def analyze_slate(date_str: str, log_fn: Callable[[str], None] = print, batter_w
                 ) as _bex:
                     list(_bex.map(
                         lambda _b: _prefetch_batter_statcast(
-                            _b["player_id"], date_str, batter_window
+                            _b["player_id"], date_str, batter_window, log_fn
                         ),
                         lineup,
                     ))
